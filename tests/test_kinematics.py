@@ -28,7 +28,10 @@ class TestZeroMeanIntegral:
 
     @pytest.mark.parametrize(
         "func_pairs",
-        [(lambda x: np.sin(np.pi * x), lambda z: -np.cos(np.pi * z) / np.pi)],
+        [
+            (lambda x: np.sin(np.pi * x), lambda z: -np.cos(np.pi * z) / np.pi),
+            (lambda x: 1.0 + x ** 3, lambda z: z + z ** 4 / 4.0 - 11.0 / 20.0),
+        ],
     )
     def test_accuracy(self, load_sample_points, func_pairs):
         test_func = func_pairs[0]
