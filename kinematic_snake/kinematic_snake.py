@@ -1,4 +1,4 @@
-__doc__ = """ Core concepts """
+__doc__ = """ Core snake """
 
 import numpy as np
 from functools import partial
@@ -141,9 +141,7 @@ class KinematicSnake:
         mag_dx_dt = np.sqrt(np.einsum("ij,ij->j", self.dx_dt, self.dx_dt))
         normalized_dx_dt = self.dx_dt / (mag_dx_dt + 1e-14)
 
-        _ , proj_along_normal = project(
-            normalized_dx_dt, self.dx_ds_perp
-        )
+        _, proj_along_normal = project(normalized_dx_dt, self.dx_ds_perp)
         mag_proj_along_tangent, proj_along_tangent = project(
             normalized_dx_dt, self.dx_ds
         )
