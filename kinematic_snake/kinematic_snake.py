@@ -42,7 +42,7 @@ class KinematicSnake:
 
     def __init__(
         self, *, froude_number: float, friction_coefficients: dict, samples=200
-    ):
+    , **kwargs):
         self.froude = froude_number if froude_number > 0.0 else -froude_number
         self.curvature_activation = None
         self.forward_mu = friction_coefficients.get("mu_f", 1.0)
@@ -54,9 +54,12 @@ class KinematicSnake:
 
         # Set via
         dofs = 3
-        self.state = np.zeros((dofs * 2,))
+        self.state = np.zeros((dofs * 2, 1))
 
-        self._construct(0.0)
+        try:
+            self.set_activation(kwargs.pop("activation"))
+        except KeyError:
+            pass
 
     def set_activation(self, func):
         def broadcast(fun):
@@ -81,25 +84,30 @@ class KinematicSnake:
             import sympy as sp
 
             t, s = sp.symbols("t, s")
-            kappa = func(t, s)
+            kappa = func(s, t)
             kappa_rate = sp.diff(kappa, t)
             kappa_acc = sp.diff(kappa_rate, t)
-            self.curvature_activation = broadcast(sp.lambdify([t, s], kappa, "numpy"))
-            self.dcurvature_activation_dt = broadcast(
-                sp.lambdify([t, s], kappa_rate, "numpy")
+            self.curvature_activation = partial(
+                broadcast(sp.lambdify([s, t], kappa, "numpy")), self.centerline
             )
-            self.d2curvature_activation_dt2 = broadcast(
-                sp.lambdify([t, s], kappa_acc, "numpy")
+            self.dcurvature_activation_dt = partial(
+                broadcast(sp.lambdify([s, t], kappa_rate, "numpy")), self.centerline
+            )
+            self.d2curvature_activation_dt2 = partial(
+                broadcast(sp.lambdify([s, t], kappa_acc, "numpy")), self.centerline
             )
         else:
             raise RuntimeError("Activation function not callable")
+
+        # Once activated, construct all quantities at the initial time
+        self._construct(0.0)
 
     def _construct(self, time):
 
         # First construct theta(s,t) and \frac{\partial X}{\partial s} from eq (2b)
         theta_com = self.state[2]
         self.theta_s = theta_com + self.zmi_along_centerline(
-            self.curvature_activation(time, self.centerline)
+            self.curvature_activation(time)
         )
         self.dx_ds = np.vstack((np.cos(self.theta_s), np.sin(self.theta_s)))
 
@@ -110,28 +118,28 @@ class KinematicSnake:
         self.dx_ds_perp[1, ...] = self.dx_ds[0, ...]
 
         # Reconstruct x(s,t) from (2a)
-        x_com = self.state[:2].reshape(-1, 1).copy()
+        x_com = self.state[:2].copy()
         self.x_s = x_com + self.zmi_along_centerline(self.dx_ds)
 
         # Get \frac{\partial \theta}{\partial t} from (3b)
         theta_dot_at_com = self.state[5]
         self.dtheta_dt = theta_dot_at_com + self.zmi_along_centerline(
-            self.dcurvature_activation_dt(time, self.centerline)
+            self.dcurvature_activation_dt(time)
         )
 
         # Get \frac{\partial X}{\partial t} from (3a)
-        x_dot_at_com = self.state[3:5].reshape(-1, 1).copy()
+        x_dot_at_com = self.state[3:5].copy()
         self.dx_dt = x_dot_at_com + self.zmi_along_centerline(
             self.dx_ds_perp * self.dtheta_dt
         )
 
-    def non_dim_friction_force(self, time):
-        self._construct(time)
-
+    def external_force_distribution(self, time):
         mag_dx_dt = np.sqrt(np.einsum("ij,ij->j", self.dx_dt, self.dx_dt))
         normalized_dx_dt = self.dx_dt / mag_dx_dt
 
-        mag_proj_along_normal, proj_along_normal = project(normalized_dx_dt, self.dx_ds_perp)
+        mag_proj_along_normal, proj_along_normal = project(
+            normalized_dx_dt, self.dx_ds_perp
+        )
         mag_proj_along_tangent, proj_along_tangent = project(
             normalized_dx_dt, self.dx_ds
         )
