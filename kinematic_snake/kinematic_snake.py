@@ -108,9 +108,8 @@ class KinematicSnake:
         self._construct(0.0)
 
     def _construct(self, time):
-
         # First construct theta(s,t) and \frac{\partial X}{\partial s} from eq (2b)
-        theta_com = self.state[2]
+        theta_com = self.state[2, ...]
         self.theta_s = theta_com + self.zmi_along_centerline(
             self.curvature_activation(time)
         )
@@ -123,26 +122,26 @@ class KinematicSnake:
         self.dx_ds_perp[1, ...] = self.dx_ds[0, ...]
 
         # Reconstruct x(s,t) from (2a)
-        x_com = self.state[:2].copy()
+        x_com = self.state[:2, ...]
         self.x_s = x_com + self.zmi_along_centerline(self.dx_ds)
 
         # Get \frac{\partial \theta}{\partial t} from (3b)
-        theta_dot_at_com = self.state[5]
+        theta_dot_at_com = self.state[5, ...]
         self.dtheta_dt = theta_dot_at_com + self.zmi_along_centerline(
             self.dcurvature_activation_dt(time)
         )
 
         # Get \frac{\partial X}{\partial t} from (3a)
-        x_dot_at_com = self.state[3:5].copy()
+        x_dot_at_com = self.state[3:5, ...]
         self.dx_dt = x_dot_at_com + self.zmi_along_centerline(
             self.dx_ds_perp * self.dtheta_dt
         )
 
     def external_force_distribution(self, time):
         mag_dx_dt = np.sqrt(np.einsum("ij,ij->j", self.dx_dt, self.dx_dt))
-        normalized_dx_dt = self.dx_dt / mag_dx_dt
+        normalized_dx_dt = self.dx_dt / (mag_dx_dt + 1e-14)
 
-        mag_proj_along_normal, proj_along_normal = project(
+        _ , proj_along_normal = project(
             normalized_dx_dt, self.dx_ds_perp
         )
         mag_proj_along_tangent, proj_along_tangent = project(
@@ -168,7 +167,7 @@ class KinematicSnake:
 
         # Last term of first part in RHS
         zmi_dx_ds_times_dtheta_dt_squared = self.zmi_along_centerline(
-            self.dx_ds * self.dtheta_dt ** 2
+            self.dx_ds * (self.dtheta_dt ** 2)
         )
 
         # Last term of second part in RHS
@@ -186,7 +185,7 @@ class KinematicSnake:
         )
 
     def __call__(self, time, state, *args, **kwargs):
-        self.state = state.copy()
+        self.state = state.copy().reshape(-1, 1)
 
         # Construct snake properties from state at current time t
         self._construct(time)
@@ -199,14 +198,14 @@ class KinematicSnake:
 
         # angular accelerations
         # distribution of moments first, (x-x_com)^T (x - x_com)
+        x_minus_xcom = self.x_s - self.state[:2, ...]
         moment_of_inertia_distribution = np.einsum(
-            "ij,ij->j", self.x_s - state[:2], self.x_s - state[:2]
+            "ij,ij->j", x_minus_xcom, x_minus_xcom
         )
         inv_moment_of_inertia = 1.0 / trapz(
             moment_of_inertia_distribution, self.centerline
         )
 
-        x_minus_xcom = self.x_s - state[:2]
         external_torque_arm = 0.0 * x_minus_xcom
         external_torque_arm[0, ...] = -x_minus_xcom[1, ...]
         external_torque_arm[1, ...] = x_minus_xcom[0, ...]
@@ -215,8 +214,8 @@ class KinematicSnake:
         )
         angular_acceleration = inv_moment_of_inertia * (
             trapz(
-                external_torque_distribution
-                + self.froude * self.internal_torque_distribution(time),
+                external_torque_distribution / self.froude
+                + self.internal_torque_distribution(time),
                 self.centerline,
             )
         )
@@ -224,8 +223,8 @@ class KinematicSnake:
         # velcoities at the front
         # accelerations at the back
         dstate_dt = 0.0 * state
-        dstate_dt[:3] = state[3:].copy()
-        dstate_dt[3:5, ...] = linear_acceleration.reshape(-1, 1)
-        dstate_dt[5, ...] = angular_acceleration.reshape(-1, 1)
+        dstate_dt[:3] = state[3:]
+        dstate_dt[3:5] = linear_acceleration
+        dstate_dt[5] = angular_acceleration
 
         return dstate_dt
