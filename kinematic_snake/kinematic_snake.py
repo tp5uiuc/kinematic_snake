@@ -179,9 +179,53 @@ class KinematicSnake:
             self.dx_ds_perp * zmi_d2_curvature_dt2
         )
 
-        return zmi_dx_ds_perp * (
-            zmi_dx_ds_times_dtheta_dt_squared - zmi_dx_ds_perp_times_zmi_acc_curvature
+        return np.einsum(
+            "ij,ij->j",
+            zmi_dx_ds_perp,
+            zmi_dx_ds_times_dtheta_dt_squared - zmi_dx_ds_perp_times_zmi_acc_curvature,
         )
 
     def __call__(self, time, state, *args, **kwargs):
-        pass
+        self.state = state.copy()
+
+        # Construct snake properties from state at current time t
+        self._construct(time)
+
+        # Linear accelerations, a (2,) array
+        external_force_distribution = self.external_force_distribution(time)
+        linear_acceleration = (
+            trapz(external_force_distribution, self.centerline) / self.froude
+        )
+
+        # angular accelerations
+        # distribution of moments first, (x-x_com)^T (x - x_com)
+        moment_of_inertia_distribution = np.einsum(
+            "ij,ij->j", self.x_s - state[:2], self.x_s - state[:2]
+        )
+        inv_moment_of_inertia = 1.0 / trapz(
+            moment_of_inertia_distribution, self.centerline
+        )
+
+        x_minus_xcom = self.x_s - state[:2]
+        external_torque_arm = 0.0 * x_minus_xcom
+        external_torque_arm[0, ...] = -x_minus_xcom[1, ...]
+        external_torque_arm[1, ...] = x_minus_xcom[0, ...]
+        external_torque_distribution = np.einsum(
+            "ij,ij->j", external_torque_arm, external_force_distribution
+        )
+        angular_acceleration = inv_moment_of_inertia * (
+            trapz(
+                external_torque_distribution
+                + self.froude * self.internal_torque_distribution(time),
+                self.centerline,
+            )
+        )
+
+        # velcoities at the front
+        # accelerations at the back
+        dstate_dt = 0.0 * state
+        dstate_dt[:3] = state[3:].copy()
+        dstate_dt[3:5, ...] = linear_acceleration.reshape(-1, 1)
+        dstate_dt[5, ...] = angular_acceleration.reshape(-1, 1)
+
+        return dstate_dt
