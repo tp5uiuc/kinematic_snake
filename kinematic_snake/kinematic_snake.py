@@ -41,8 +41,13 @@ class KinematicSnake:
     """
 
     def __init__(
-        self, *, froude_number: float, friction_coefficients: dict, samples=200
-    , **kwargs):
+        self,
+        *,
+        froude_number: float,
+        friction_coefficients: dict,
+        samples=200,
+        **kwargs
+    ):
         self.froude = froude_number if froude_number > 0.0 else -froude_number
         self.curvature_activation = None
         self.forward_mu = friction_coefficients.get("mu_f", 1.0)
@@ -156,6 +161,27 @@ class KinematicSnake:
             * proj_along_tangent
         )
         return -friction_force
+
+    def internal_torque_distribution(self, time):
+        # Common to both terms on the RHS
+        zmi_dx_ds_perp = self.zmi_along_centerline(self.dx_ds_perp)
+
+        # Last term of first part in RHS
+        zmi_dx_ds_times_dtheta_dt_squared = self.zmi_along_centerline(
+            self.dx_ds * self.dtheta_dt ** 2
+        )
+
+        # Last term of second part in RHS
+        zmi_d2_curvature_dt2 = self.zmi_along_centerline(
+            self.d2curvature_activation_dt2(time)
+        )
+        zmi_dx_ds_perp_times_zmi_acc_curvature = self.zmi_along_centerline(
+            self.dx_ds_perp * zmi_d2_curvature_dt2
+        )
+
+        return zmi_dx_ds_perp * (
+            zmi_dx_ds_times_dtheta_dt_squared - zmi_dx_ds_perp_times_zmi_acc_curvature
+        )
 
     def __call__(self, time, state, *args, **kwargs):
         pass
