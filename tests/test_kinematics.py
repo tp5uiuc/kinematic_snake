@@ -43,3 +43,6 @@ class TestZeroMeanIntegral:
         sampled_correct_func = correct_func(sample_points)
 
         assert_allclose(zmi_of_test_func, sampled_correct_func, rtol=1e-4, atol=1e-4)
+
+
+# TODO Add more tests
