@@ -1,6 +1,7 @@
 __doc__ = """ Core concepts """
 
 import numpy as np
+from functools import partial
 from scipy.integrate import trapz, cumtrapz
 
 
@@ -18,7 +19,11 @@ def zero_mean_integral(sampled_func, samples):
     """
 
     int_func = cumtrapz(sampled_func, samples)
-    # Add zeros at the start
-    zeros = np.zeros((int_func.shape[0], 1))
-    int_func = np.hstack((zeros, int_func))
-    return int_func - trapz(int_func, samples).reshape(-1, 1)
+    # Add zeros at the start and make a bigger array
+    int_func_with_initial_values = np.zeros(
+        int_func.shape[:-1] + (int_func.shape[-1] + 1,)
+    )
+    int_func_with_initial_values[..., 1:] = int_func
+    return int_func_with_initial_values - trapz(
+        int_func_with_initial_values, samples
+    ).reshape(-1, 1)
