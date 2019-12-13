@@ -56,6 +56,8 @@ class KinematicSnake:
         dofs = 3
         self.state = np.zeros((dofs * 2,))
 
+        self._construct(0.0)
+
     def set_activation(self, func):
         def broadcast(fun):
             """ Required because sp.diff of a constant function
@@ -103,9 +105,9 @@ class KinematicSnake:
 
         # The cross operator \perp of \frac{\partial X}{\partial s}
         # Can do cross with [0., 0., 1], but why bother?
-        dx_ds_perp = 0.0 * self.dx_ds
-        dx_ds_perp[0, ...] = -self.dx_ds[1, ...]
-        dx_ds_perp[1, ...] = self.dx_ds[0, ...]
+        self.dx_ds_perp = 0.0 * self.dx_ds
+        self.dx_ds_perp[0, ...] = -self.dx_ds[1, ...]
+        self.dx_ds_perp[1, ...] = self.dx_ds[0, ...]
 
         # Reconstruct x(s,t) from (2a)
         x_com = self.state[:2].reshape(-1, 1).copy()
@@ -120,18 +122,16 @@ class KinematicSnake:
         # Get \frac{\partial X}{\partial t} from (3a)
         x_dot_at_com = self.state[3:5].reshape(-1, 1).copy()
         self.dx_dt = x_dot_at_com + self.zmi_along_centerline(
-            dx_ds_perp * self.dtheta_dt
+            self.dx_ds_perp * self.dtheta_dt
         )
 
-        return dx_ds_perp
-
     def non_dim_friction_force(self, time):
-        dx_ds_perp = self._construct(time)
+        self._construct(time)
 
         mag_dx_dt = np.sqrt(np.einsum("ij,ij->j", self.dx_dt, self.dx_dt))
         normalized_dx_dt = self.dx_dt / mag_dx_dt
 
-        mag_proj_along_normal, proj_along_normal = project(normalized_dx_dt, dx_ds_perp)
+        mag_proj_along_normal, proj_along_normal = project(normalized_dx_dt, self.dx_ds_perp)
         mag_proj_along_tangent, proj_along_tangent = project(
             normalized_dx_dt, self.dx_ds
         )
