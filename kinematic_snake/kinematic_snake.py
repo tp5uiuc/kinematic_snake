@@ -29,6 +29,12 @@ def zero_mean_integral(sampled_func, samples):
     ).reshape(-1, 1)
 
 
+def project(unit_vec, proj_axis):
+    mag_projection = np.einsum("ij, ij -> j", unit_vec, proj_axis)
+    projection = mag_projection * proj_axis
+    return mag_projection, projection
+
+
 class KinematicSnake:
     """
     States are COM (x, y, theta, xdot, ydot, thetadot)
@@ -117,8 +123,31 @@ class KinematicSnake:
             dx_ds_perp * self.dtheta_dt
         )
 
-    def non_dim_friction_force(self):
-        pass
+        return dx_ds_perp
+
+    def non_dim_friction_force(self, time):
+        dx_ds_perp = self._construct(time)
+
+        mag_dx_dt = np.sqrt(np.einsum("ij,ij->j", self.dx_dt, self.dx_dt))
+        normalized_dx_dt = self.dx_dt / mag_dx_dt
+
+        mag_proj_along_normal, proj_along_normal = project(normalized_dx_dt, dx_ds_perp)
+        mag_proj_along_tangent, proj_along_tangent = project(
+            normalized_dx_dt, self.dx_ds
+        )
+
+        is_forward_friction_active = np.heaviside(mag_proj_along_tangent, 0.5)
+
+        # friction according to eq.(8)
+        friction_force = (
+            self.lateral_mu * proj_along_normal
+            + (
+                self.forward_mu * is_forward_friction_active
+                + self.backward_mu * (1.0 - is_forward_friction_active)
+            )
+            * proj_along_tangent
+        )
+        return -friction_force
 
     def __call__(self, time, state, *args, **kwargs):
         pass
