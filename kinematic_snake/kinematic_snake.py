@@ -45,7 +45,7 @@ class KinematicSnake:
         *,
         froude_number: float,
         friction_coefficients: dict,
-        samples=200,
+        samples=300,
         **kwargs
     ):
         self.froude = froude_number if froude_number > 0.0 else -froude_number
@@ -56,6 +56,11 @@ class KinematicSnake:
         self.samples = samples
         self.centerline = np.linspace(0.0, 1.0, samples).reshape(1, -1)
         self.zmi_along_centerline = partial(zero_mean_integral, samples=self.centerline)
+        print(
+            "Setup snake with Fr {1}, mu_f {0}, mu_b {2}, mu_lat {3} with dimensions {4}".format(
+                self.forward_mu, self.froude, self.backward_mu, self.lateral_mu, samples
+            )
+        )
 
         # Set via
         dofs = 3
@@ -139,7 +144,7 @@ class KinematicSnake:
 
     def external_force_distribution(self, time):
         mag_dx_dt = np.sqrt(np.einsum("ij,ij->j", self.dx_dt, self.dx_dt))
-        normalized_dx_dt = self.dx_dt / (mag_dx_dt + 1e-14)
+        normalized_dx_dt = self.dx_dt / (mag_dx_dt)
 
         _, proj_along_normal = project(normalized_dx_dt, self.dx_ds_perp)
         mag_proj_along_tangent, proj_along_tangent = project(
