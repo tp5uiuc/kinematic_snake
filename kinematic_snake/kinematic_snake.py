@@ -51,8 +51,8 @@ class KinematicSnake:
         self.froude = froude_number if froude_number > 0.0 else -froude_number
         self.curvature_activation = None
         self.forward_mu = friction_coefficients.get("mu_f", 1.0)
-        self.backward_mu = friction_coefficients.pop("mu_b")
-        self.lateral_mu = friction_coefficients.pop("mu_lat")
+        self.backward_mu = friction_coefficients.get("mu_b", None)
+        self.lateral_mu = friction_coefficients.get("mu_lat", None)
         self.samples = samples
         self.centerline = np.linspace(0.0, 1.0, samples).reshape(1, -1)
         self.zmi_along_centerline = partial(zero_mean_integral, samples=self.centerline)
@@ -65,6 +65,8 @@ class KinematicSnake:
         # Set via
         dofs = 3
         self.state = np.zeros((dofs * 2, 1))
+        # Setting initial x-velocity to be a very high number
+        # self.state[3, ...] = 1.0
 
         try:
             self.set_activation(kwargs.pop("activation"))
@@ -122,7 +124,7 @@ class KinematicSnake:
 
         # The cross operator \perp of \frac{\partial X}{\partial s}
         # Can do cross with [0., 0., 1], but why bother?
-        self.dx_ds_perp = 0.0 * self.dx_ds
+        self.dx_ds_perp = np.empty_like(self.dx_ds)
         self.dx_ds_perp[0, ...] = -self.dx_ds[1, ...]
         self.dx_ds_perp[1, ...] = self.dx_ds[0, ...]
 
@@ -131,16 +133,24 @@ class KinematicSnake:
         self.x_s = x_com + self.zmi_along_centerline(self.dx_ds)
 
         # Get \frac{\partial \theta}{\partial t} from (3b)
-        theta_dot_at_com = self.state[5, ...]
-        self.dtheta_dt = theta_dot_at_com + self.zmi_along_centerline(
+        theta_dot_com = self.state[5, ...]
+        self.dtheta_dt = theta_dot_com + self.zmi_along_centerline(
             self.dcurvature_activation_dt(time)
         )
 
         # Get \frac{\partial X}{\partial t} from (3a)
-        x_dot_at_com = self.state[3:5, ...]
-        self.dx_dt = x_dot_at_com + self.zmi_along_centerline(
+        x_dot_com = self.state[3:5, ...]
+        self.dx_dt = x_dot_com + self.zmi_along_centerline(
             self.dx_ds_perp * self.dtheta_dt
         )
+
+    def calculate_moment_of_inertia(self):
+        # distribution of moments first, (x-x_com)^T (x - x_com)
+        x_minus_xcom = self.x_s - self.state[:2, ...]
+        moment_of_inertia_distribution = np.einsum(
+            "ij,ij->j", x_minus_xcom, x_minus_xcom
+        )
+        return trapz(moment_of_inertia_distribution, self.centerline)
 
     def external_force_distribution(self, time):
         mag_dx_dt = np.sqrt(np.einsum("ij,ij->j", self.dx_dt, self.dx_dt))
@@ -163,6 +173,13 @@ class KinematicSnake:
             * proj_along_tangent
         )
         return -friction_force
+
+    def external_torque_distribution(self, ext_force):
+        x_minus_xcom = self.x_s - self.state[:2, ...]
+        external_torque_arm = np.empty_like(x_minus_xcom)
+        external_torque_arm[0, ...] = -x_minus_xcom[1, ...]
+        external_torque_arm[1, ...] = x_minus_xcom[0, ...]
+        return np.einsum("ij,ij->j", external_torque_arm, ext_force)
 
     def internal_torque_distribution(self, time):
         # Common to both terms on the RHS
@@ -200,21 +217,11 @@ class KinematicSnake:
         )
 
         # angular accelerations
-        # distribution of moments first, (x-x_com)^T (x - x_com)
-        x_minus_xcom = self.x_s - self.state[:2, ...]
-        moment_of_inertia_distribution = np.einsum(
-            "ij,ij->j", x_minus_xcom, x_minus_xcom
-        )
-        inv_moment_of_inertia = 1.0 / trapz(
-            moment_of_inertia_distribution, self.centerline
+        inv_moment_of_inertia = 1.0 / self.calculate_moment_of_inertia()
+        external_torque_distribution = self.external_torque_distribution(
+            external_force_distribution
         )
 
-        external_torque_arm = 0.0 * x_minus_xcom
-        external_torque_arm[0, ...] = -x_minus_xcom[1, ...]
-        external_torque_arm[1, ...] = x_minus_xcom[0, ...]
-        external_torque_distribution = np.einsum(
-            "ij,ij->j", external_torque_arm, external_force_distribution
-        )
         angular_acceleration = inv_moment_of_inertia * (
             trapz(
                 external_torque_distribution / self.froude
@@ -223,10 +230,12 @@ class KinematicSnake:
             )
         )
 
-        # velcoities at the front
-        # accelerations at the back
-        dstate_dt = 0.0 * state
+        dstate_dt = np.empty_like(state)
+
+        # Copy velocities at the front
         dstate_dt[:3] = state[3:]
+
+        # accelerations at the back
         dstate_dt[3:5] = linear_acceleration
         dstate_dt[5] = angular_acceleration
 

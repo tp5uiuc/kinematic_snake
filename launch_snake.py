@@ -36,7 +36,7 @@ def run_snake(froude, time_interval=[0.0, 5.0], **kwargs):
     )
     snake.set_activation(bound_activation)
 
-    sol = solve_ivp(snake, time_interval, snake.state.copy().reshape(-1,), method="BDF")
+    sol = solve_ivp(snake, time_interval, snake.state.copy().reshape(-1, ), method="RK23")
     # omega * time = wave-number * pi * time
     # omega = 2 * pi * freq
     # -> freq = wave_number/2 and T = 1./freq
@@ -57,7 +57,7 @@ def run_and_visualize(*args, **kwargs):
         # skip = 1
         n_steps = sol_history.t[::skip].size
         for step, (time, solution) in enumerate(
-            zip(sol_history.t[::skip], sol_history.y.T[::skip])
+                zip(sol_history.t[::skip], sol_history.y.T[::skip])
         ):
             snake.state = solution.reshape(-1, 1)
             snake._construct(time)
@@ -186,7 +186,8 @@ if __name__ == "__main__":
     """
     # snake, sol = run_and_visualize(froude=1e-3, time_interval=[0.0, 10.0], epsilon=7.0)
     snake, sol_history = run_and_visualize(
-        froude=0.1, time_interval=[0.0, 10.0], friction_coefficient=0.11
+        froude=0.1, time_interval=[0.0, 20.0],
+        # a_f=1.0, a_b=1.27, a_lat=1.81
     )
 
     """
