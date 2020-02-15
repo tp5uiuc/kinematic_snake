@@ -1,4 +1,5 @@
 import numpy as np
+# import pickle
 from functools import partial
 from sympy import sin, cos, pi
 from scipy.integrate import solve_ivp, trapz
@@ -36,11 +37,33 @@ def run_snake(froude, time_interval=[0.0, 5.0], **kwargs):
     )
     snake.set_activation(bound_activation)
 
-    sol = solve_ivp(snake, time_interval, snake.state.copy().reshape(-1, ), method="RK23")
-    # omega * time = wave-number * pi * time
-    # omega = 2 * pi * freq
-    # -> freq = wave_number/2 and T = 1./freq
-    return snake, sol, 2.0 / wave_number
+    # Generate t_eval so that simulation stores data at this point, useful for computing
+    # cycle-bases statistics and so on...
+    if "activation" not in kwargs:
+        # omega * time = wave-number * pi * time
+        # omega = 2 * pi * freq
+        # -> freq = wave_number/2 and T = 1./freq
+        time_period = 2.0 / wave_number
+        periods_within_interval = int(time_interval[1] / time_period)
+        t_event = np.arange(1.0, periods_within_interval) * time_period
+        events = [lambda t, y, x=x: (t - x) for x in t_event]
+    else:
+        time_period = None
+        events = None
+
+    sol = solve_ivp(snake, time_interval, snake.state.copy().reshape(-1, ), method="RK23", events=events)
+
+    # Append t_events and y_events to the final solution history
+    # Monkey patching
+    insert_idx = np.searchsorted(sol.t, sol.t_events)
+    n_insertions = insert_idx.shape[0]
+    sol.t = np.insert(sol.t, insert_idx[:, 0], np.array(sol.t_events).reshape(-1, ))
+    sol.y = np.insert(sol.y, insert_idx[:, 0], np.squeeze(np.array(sol.y_events)).T, axis=1)
+
+    if time_period is None:
+        return snake, sol
+    else:
+        return snake, sol, time_period
 
 
 def run_and_visualize(*args, **kwargs):
@@ -53,7 +76,7 @@ def run_and_visualize(*args, **kwargs):
         phys_space_fig = plt.figure(figsize=(10, 8))
         phys_space_ax = phys_space_fig.add_subplot(111)
         n_steps = sol_history.t.size
-        skip = int(n_steps / 20)
+        skip = max(int(n_steps / 20), 1)
         # skip = 1
         n_steps = sol_history.t[::skip].size
         for step, (time, solution) in enumerate(
@@ -178,6 +201,11 @@ def run_phase_space(**kwargs):
 def fwd_to_run_snake(kwargs):
     print(kwargs)
     # run_snake(**kwargs)
+    # run_snake()
+
+    # pickle_file_name = "".format()
+    # with open(pickle_file_name, "wb") as file_handler:
+    #     pickle.dump(, file_handler)
 
 
 if __name__ == "__main__":
