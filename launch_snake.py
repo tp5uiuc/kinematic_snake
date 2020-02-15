@@ -1,9 +1,9 @@
 import numpy as np
-# import pickle
+import dill as pickle
 from functools import partial
 from sympy import sin, cos, pi
 from scipy.integrate import solve_ivp, trapz
-
+from collections import OrderedDict
 from kinematic_snake.kinematic_snake import KinematicSnake
 
 
@@ -175,7 +175,7 @@ def run_and_visualize(*args, **kwargs):
 
 def run_phase_space(**kwargs):
     from p_tqdm import p_map
-
+    from psutil import cpu_count
     # Detect which elements in kwargs are parameterized
     # by multiple values. For only those elements,
     # unpack the list and put them in a special kwargs
@@ -194,40 +194,78 @@ def run_phase_space(**kwargs):
         for instance in product(*vals):
             yield dict(zip(keys, instance))
 
-    phase_space_kwargs = cartesian_product(**kwargs)
-    added = p_map(fwd_to_run_snake, list(phase_space_kwargs))
+    phase_space_kwargs = list(cartesian_product(**kwargs))
+    phase_space_ids = list(range(1, len(phase_space_kwargs) + 1))
+    # write a file that contains the number-key/pairs mapping
+
+    from os import makedirs
+    id_folder_name = "data"
+    makedirs(id_folder_name, exist_ok=True)
+
+    from os.path import join
+    id_file_name = join(id_folder_name, "ids.csv")
+
+    import csv
+    with open(id_file_name, "w", newline='') as id_file_handler:
+        # Write header first
+        csvwriter = csv.writer(id_file_handler, delimiter=',')
+        header_row = ["id"] + list(phase_space_kwargs[0].keys())
+        csvwriter.writerow(header_row)
+        for id, args_dict in zip(phase_space_ids, phase_space_kwargs):
+            temp = [id]
+            temp.extend(args_dict.values())
+            csvwriter.writerow(temp)
+
+    added = p_map(fwd_to_run_snake, phase_space_kwargs , phase_space_ids, id_folder_name, num_cpus = cpu_count(logical=False))
 
 
-def fwd_to_run_snake(kwargs):
-    print(kwargs)
-    # run_snake(**kwargs)
-    # run_snake()
+def fwd_to_run_snake(kwargs, id, data_folder_name):
+    snake, sol, time_period = run_snake(**kwargs)
 
-    # pickle_file_name = "".format()
-    # with open(pickle_file_name, "wb") as file_handler:
-    #     pickle.dump(, file_handler)
-
+    from os.path import join
+    pickle_file_name = join(data_folder_name, "{id:05d}_results.pkl".format(id = id))
+    with open(pickle_file_name, "wb") as file_handler:
+        # # Doesn't work
+        # pickle.dump([snake, sol], file_handler)
+        # Works
+        pickle.dump(sol, file_handler)
 
 if __name__ == "__main__":
     """
     Running a single case
     """
     # snake, sol = run_and_visualize(froude=1e-3, time_interval=[0.0, 10.0], epsilon=7.0)
-    snake, sol_history = run_and_visualize(
-        froude=0.1, time_interval=[0.0, 20.0],
-        # a_f=1.0, a_b=1.27, a_lat=1.81
-    )
+    # snake, sol_history = run_and_visualize(
+    #     froude=0.1, time_interval=[0.0, 20.0],
+    #     # a_f=1.0, a_b=1.27, a_lat=1.81
+    # )
 
     """
     Running a phase-space
     """
-    # kwargs = {
-    #     "froude": [1.0, 2.0, 3.0],
-    #     "time_interval": [[0.0, 20.0]],
-    #     "mu_f": [1.0, 2.0],
-    #     "mu_b": [3.0, 4.0],
-    #     "mu_t": [3.0, 4.0],
-    #     "epsilon" : [2.0, 4.0, 7.0],
-    #     "wave_numbers" : [4., 5., 6.]
-    # }
-    # ps = run_phase_space(**kwargs)
+    """
+    kwargs = OrderedDict(
+        {
+        "froude": [1.0, 2.0, 3.0],  # should always be at the top for now
+        "time_interval": [[0.0, 20.0]],  # should always be second for now
+        "mu_f": [1.0, 2.0],
+        "mu_b": [3.0, 4.0],
+        "mu_t": [3.0, 4.0],
+        "epsilon": [2.0, 4.0, 7.0],
+        "wave_numbers": [4., 5., 6.]
+        }
+    )
+    """
+    kwargs = OrderedDict(
+        {
+            "froude": [1.0],  # should always be at the top for now
+            "time_interval": [[0.0, 20.0]],  # should always be second for now
+            "mu_f": [1.0],
+            "mu_b": [3.0],
+            "mu_t": [3.0],
+            "epsilon": [2.0],
+            "wave_numbers": [4.]
+        }
+    )
+
+    ps = run_phase_space(**kwargs)
