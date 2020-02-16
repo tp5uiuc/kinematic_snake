@@ -2,3 +2,6 @@ numpy
 scipy >= 1.4.0
 matplotlib
 p_tqdm
+dill
+sympy
+psutil

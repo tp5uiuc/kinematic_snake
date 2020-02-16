@@ -1,25 +1,16 @@
 import numpy as np
-import dill as pickle
+import pickle
 from functools import partial
 from sympy import sin, cos, pi
 from scipy.integrate import solve_ivp, trapz
 from collections import OrderedDict
 from kinematic_snake.kinematic_snake import KinematicSnake
+from os import path, makedirs
 
 
-def run_snake(froude, time_interval=[0.0, 5.0], **kwargs):
-    # Set a sane default value, which is updated using kwargs
-    friction_coefficient_ratios = {"a_f": 1, "a_b": 1.4, "a_lat": 2.0}
-    friction_coefficient_ratios.update(kwargs)
-    forward_friction_coefficient = kwargs.get(
-        "friction_coefficient", 1.0 / (1.0 ** 2 * 9.81 * froude)
-    )  # for now
+def make_snake(froude, time_interval, **kwargs):
     friction_coefficients = {"mu_f": None, "mu_b": None, "mu_lat": None}
-    for direction in ["f", "b", "lat"]:
-        src_key = "a_" + direction
-        tgt_key = "mu_" + direction
-        # friction_coefficients[tgt_key] = forward_friction_coefficient * friction_coefficient_ratios[src_key]
-        friction_coefficients[tgt_key] = friction_coefficient_ratios[src_key]
+    friction_coefficients.update(kwargs)
 
     snake = KinematicSnake(
         froude_number=froude, friction_coefficients=friction_coefficients
@@ -36,6 +27,11 @@ def run_snake(froude, time_interval=[0.0, 5.0], **kwargs):
         ),
     )
     snake.set_activation(bound_activation)
+    return snake, wave_number
+
+
+def run_snake(froude, time_interval=[0.0, 5.0], **kwargs):
+    snake, wave_number = make_snake(froude, time_interval, **kwargs)
 
     # Generate t_eval so that simulation stores data at this point, useful for computing
     # cycle-bases statistics and so on...
@@ -65,6 +61,76 @@ def run_snake(froude, time_interval=[0.0, 5.0], **kwargs):
     else:
         return snake, sol, time_period
 
+
+class SnakeIO:
+    data_folder_name = "data"
+    id_file_name = path.join(data_folder_name, "ids.csv")
+    pickled_file_name = path.join(data_folder_name, "{id:05d}_results.pkl")
+
+class SnakeReader(SnakeIO):
+    @staticmethod
+    def load_snake_from_disk(id: int):
+
+        import csv, ast
+        keys = []
+        values = []
+
+        def row_count(filename):
+            with open(filename) as in_file:
+                return sum(1 for _ in in_file)
+
+        n_lines = row_count(SnakeReader.id_file_name)
+
+        with open(SnakeReader.id_file_name, "r", newline='') as id_file_handler:
+            # look for id in first column
+            # Read header last
+            csvreader = csv.reader(id_file_handler, delimiter=',')
+            for row in csvreader:
+                if csvreader.line_num == 1:
+                    keys = row[1:]  # take everything except id
+                if str(id) == (row[0]):
+                    values = [ast.literal_eval(x) for x in row[1:]]  # take everything except id
+                    break
+                if csvreader.line_num == n_lines:
+                    raise IndexError("End of id file reached, requested id not present")
+
+        if values:
+            kwargs = dict(zip(keys, values))
+        else:
+            raise ValueError("Cannot load keys and values from csv file")
+
+        pickled_file_name = SnakeReader.pickled_file_name.format(id=id)
+
+        with open(pickled_file_name, "rb") as pickled_file:
+            sol = pickle.load(pickled_file)
+
+        snake, wave_number = make_snake(froude=kwargs.pop("froude"), time_interval=kwargs.pop("time_interval"), **kwargs)
+
+        return snake, sol
+
+class SnakeWriter(SnakeIO):
+    @staticmethod
+    def write_ids_to_disk(phase_space_ids, phase_space_kwargs):
+        makedirs(SnakeWriter.data_folder_name, exist_ok=True)
+
+        import csv
+        with open(SnakeWriter.id_file_name, "w", newline='') as id_file_handler:
+            # Write header first
+            csvwriter = csv.writer(id_file_handler, delimiter=',')
+            header_row = ["id"] + list(phase_space_kwargs[0].keys())
+            csvwriter.writerow(header_row)
+            for id, args_dict in zip(phase_space_ids, phase_space_kwargs):
+                temp = [id]
+                temp.extend(args_dict.values())
+                csvwriter.writerow(temp)
+
+    @staticmethod
+    def write_snake_to_disk(id : int, sol):
+        with open(SnakeWriter.pickled_file_name.format(id=id), "wb") as file_handler:
+            # # Doesn't work
+            # pickle.dump([snake, sol], file_handler)
+            # Works
+            pickle.dump(sol, file_handler)
 
 def run_and_visualize(*args, **kwargs):
     snake, sol_history, time_period = run_snake(*args, **kwargs)
@@ -198,48 +264,29 @@ def run_phase_space(**kwargs):
     phase_space_ids = list(range(1, len(phase_space_kwargs) + 1))
     # write a file that contains the number-key/pairs mapping
 
-    from os import makedirs
-    id_folder_name = "data"
-    makedirs(id_folder_name, exist_ok=True)
+    SnakeWriter.write_ids_to_disk(phase_space_ids, phase_space_kwargs)
 
-    from os.path import join
-    id_file_name = join(id_folder_name, "ids.csv")
-
-    import csv
-    with open(id_file_name, "w", newline='') as id_file_handler:
-        # Write header first
-        csvwriter = csv.writer(id_file_handler, delimiter=',')
-        header_row = ["id"] + list(phase_space_kwargs[0].keys())
-        csvwriter.writerow(header_row)
-        for id, args_dict in zip(phase_space_ids, phase_space_kwargs):
-            temp = [id]
-            temp.extend(args_dict.values())
-            csvwriter.writerow(temp)
-
-    added = p_map(fwd_to_run_snake, phase_space_kwargs , phase_space_ids, id_folder_name, num_cpus = cpu_count(logical=False))
+    added = p_map(fwd_to_run_snake, phase_space_kwargs, phase_space_ids,
+                  num_cpus=cpu_count(logical=False))
 
 
-def fwd_to_run_snake(kwargs, id, data_folder_name):
+def fwd_to_run_snake(kwargs, id):
     snake, sol, time_period = run_snake(**kwargs)
-
-    from os.path import join
-    pickle_file_name = join(data_folder_name, "{id:05d}_results.pkl".format(id = id))
-    with open(pickle_file_name, "wb") as file_handler:
-        # # Doesn't work
-        # pickle.dump([snake, sol], file_handler)
-        # Works
-        pickle.dump(sol, file_handler)
+    SnakeWriter.write_snake_to_disk(id, sol)
 
 if __name__ == "__main__":
     """
     Running a single case
     """
     # snake, sol = run_and_visualize(froude=1e-3, time_interval=[0.0, 10.0], epsilon=7.0)
-    # snake, sol_history = run_and_visualize(
-    #     froude=0.1, time_interval=[0.0, 20.0],
-    #     # a_f=1.0, a_b=1.27, a_lat=1.81
-    # )
+    """
+    snake, sol_history = run_and_visualize(
+        froude=0.1, time_interval=[0.0, 3.0],
+        mu_f=1.0, mu_b=1.27, mu_lat=1.81
+    )
+    """
 
+    snake, sol_history = SnakeReader.load_snake_from_disk(1)
     """
     Running a phase-space
     """
@@ -256,16 +303,18 @@ if __name__ == "__main__":
         }
     )
     """
+    """
     kwargs = OrderedDict(
         {
             "froude": [1.0],  # should always be at the top for now
             "time_interval": [[0.0, 20.0]],  # should always be second for now
             "mu_f": [1.0],
             "mu_b": [3.0],
-            "mu_t": [3.0],
+            "mu_lat": [3.0],
             "epsilon": [2.0],
             "wave_numbers": [4.]
         }
     )
 
     ps = run_phase_space(**kwargs)
+    """
