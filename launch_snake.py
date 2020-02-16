@@ -47,14 +47,21 @@ def run_snake(froude, time_interval=[0.0, 5.0], **kwargs):
         time_period = None
         events = None
 
-    sol = solve_ivp(snake, time_interval, snake.state.copy().reshape(-1, ), method="RK23", events=events)
+    sol = solve_ivp(
+        snake,
+        time_interval,
+        snake.state.copy().reshape(-1,),
+        method="RK23",
+        events=events,
+    )
 
     # Append t_events and y_events to the final solution history
     # Monkey patching
     insert_idx = np.searchsorted(sol.t, sol.t_events)
-    n_insertions = insert_idx.shape[0]
-    sol.t = np.insert(sol.t, insert_idx[:, 0], np.array(sol.t_events).reshape(-1, ))
-    sol.y = np.insert(sol.y, insert_idx[:, 0], np.squeeze(np.array(sol.y_events)).T, axis=1)
+    sol.t = np.insert(sol.t, insert_idx[:, 0], np.array(sol.t_events).reshape(-1,))
+    sol.y = np.insert(
+        sol.y, insert_idx[:, 0], np.squeeze(np.array(sol.y_events)).T, axis=1
+    )
 
     if time_period is None:
         return snake, sol
@@ -67,11 +74,14 @@ class SnakeIO:
     id_file_name = path.join(data_folder_name, "ids.csv")
     pickled_file_name = path.join(data_folder_name, "{id:05d}_results.pkl")
 
+
 class SnakeReader(SnakeIO):
     @staticmethod
     def load_snake_from_disk(id: int):
 
-        import csv, ast
+        import csv
+        import ast
+
         keys = []
         values = []
 
@@ -81,15 +91,17 @@ class SnakeReader(SnakeIO):
 
         n_lines = row_count(SnakeReader.id_file_name)
 
-        with open(SnakeReader.id_file_name, "r", newline='') as id_file_handler:
+        with open(SnakeReader.id_file_name, "r", newline="") as id_file_handler:
             # look for id in first column
             # Read header last
-            csvreader = csv.reader(id_file_handler, delimiter=',')
+            csvreader = csv.reader(id_file_handler, delimiter=",")
             for row in csvreader:
                 if csvreader.line_num == 1:
                     keys = row[1:]  # take everything except id
                 if str(id) == (row[0]):
-                    values = [ast.literal_eval(x) for x in row[1:]]  # take everything except id
+                    values = [
+                        ast.literal_eval(x) for x in row[1:]
+                    ]  # take everything except id
                     break
                 if csvreader.line_num == n_lines:
                     raise IndexError("End of id file reached, requested id not present")
@@ -104,9 +116,14 @@ class SnakeReader(SnakeIO):
         with open(pickled_file_name, "rb") as pickled_file:
             sol = pickle.load(pickled_file)
 
-        snake, wave_number = make_snake(froude=kwargs.pop("froude"), time_interval=kwargs.pop("time_interval"), **kwargs)
+        snake, wave_number = make_snake(
+            froude=kwargs.pop("froude"),
+            time_interval=kwargs.pop("time_interval"),
+            **kwargs
+        )
 
         return snake, sol
+
 
 class SnakeWriter(SnakeIO):
     @staticmethod
@@ -114,9 +131,10 @@ class SnakeWriter(SnakeIO):
         makedirs(SnakeWriter.data_folder_name, exist_ok=True)
 
         import csv
-        with open(SnakeWriter.id_file_name, "w", newline='') as id_file_handler:
+
+        with open(SnakeWriter.id_file_name, "w", newline="") as id_file_handler:
             # Write header first
-            csvwriter = csv.writer(id_file_handler, delimiter=',')
+            csvwriter = csv.writer(id_file_handler, delimiter=",")
             header_row = ["id"] + list(phase_space_kwargs[0].keys())
             csvwriter.writerow(header_row)
             for id, args_dict in zip(phase_space_ids, phase_space_kwargs):
@@ -125,12 +143,13 @@ class SnakeWriter(SnakeIO):
                 csvwriter.writerow(temp)
 
     @staticmethod
-    def write_snake_to_disk(id : int, sol):
+    def write_snake_to_disk(id: int, sol):
         with open(SnakeWriter.pickled_file_name.format(id=id), "wb") as file_handler:
             # # Doesn't work
             # pickle.dump([snake, sol], file_handler)
             # Works
             pickle.dump(sol, file_handler)
+
 
 def run_and_visualize(*args, **kwargs):
     snake, sol_history, time_period = run_snake(*args, **kwargs)
@@ -146,7 +165,7 @@ def run_and_visualize(*args, **kwargs):
         # skip = 1
         n_steps = sol_history.t[::skip].size
         for step, (time, solution) in enumerate(
-                zip(sol_history.t[::skip], sol_history.y.T[::skip])
+            zip(sol_history.t[::skip], sol_history.y.T[::skip])
         ):
             snake.state = solution.reshape(-1, 1)
             snake._construct(time)
@@ -242,6 +261,7 @@ def run_and_visualize(*args, **kwargs):
 def run_phase_space(**kwargs):
     from p_tqdm import p_map
     from psutil import cpu_count
+
     # Detect which elements in kwargs are parameterized
     # by multiple values. For only those elements,
     # unpack the list and put them in a special kwargs
@@ -266,13 +286,18 @@ def run_phase_space(**kwargs):
 
     SnakeWriter.write_ids_to_disk(phase_space_ids, phase_space_kwargs)
 
-    added = p_map(fwd_to_run_snake, phase_space_kwargs, phase_space_ids,
-                  num_cpus=cpu_count(logical=False))
+    _ = p_map(
+        fwd_to_run_snake,
+        phase_space_kwargs,
+        phase_space_ids,
+        num_cpus=cpu_count(logical=False),
+    )
 
 
 def fwd_to_run_snake(kwargs, id):
     snake, sol, time_period = run_snake(**kwargs)
     SnakeWriter.write_snake_to_disk(id, sol)
+
 
 if __name__ == "__main__":
     """
