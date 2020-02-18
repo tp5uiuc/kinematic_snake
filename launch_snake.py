@@ -254,6 +254,7 @@ def run_and_visualize(*args, **kwargs):
 
     phys_space_fig.show()
     velocity_fig.show()
+    plt.show()
     print(avg_projected_velocity)
     return snake, sol_history
 
@@ -304,14 +305,12 @@ if __name__ == "__main__":
     Running a single case
     """
     # snake, sol = run_and_visualize(froude=1e-3, time_interval=[0.0, 10.0], epsilon=7.0)
-    """
     snake, sol_history = run_and_visualize(
         froude=0.1, time_interval=[0.0, 3.0],
         mu_f=1.0, mu_b=1.27, mu_lat=1.81
     )
-    """
 
-    snake, sol_history = SnakeReader.load_snake_from_disk(1)
+    # snake, sol_history = SnakeReader.load_snake_from_disk(1)
     """
     Running a phase-space
     """
