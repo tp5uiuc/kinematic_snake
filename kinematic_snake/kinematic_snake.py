@@ -261,7 +261,6 @@ class LiftingKinematicSnake(KinematicSnake):
 
     def set_lifting_activation(self, func):
         # lifting activation is only a function of s and t
-        print("Set liftin ativation")
         self.lifting_activation = partial(func, self.centerline)
 
     def external_force_distribution(self, time):

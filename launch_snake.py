@@ -45,7 +45,6 @@ def make_snake(froude, time_interval, snake_type, **kwargs):
                 wave_number=wave_number,
             )
         )
-        print(bound_lifting_activation(0.0, 0.0))
         snake.__class__ = LiftingKinematicSnake
         snake.set_lifting_activation(bound_lifting_activation)
 
@@ -73,7 +72,7 @@ def run_snake(froude, time_interval=[0.0, 5.0], snake_type=KinematicSnake, **kwa
         snake,
         time_interval,
         snake.state.copy().reshape(-1, ),
-        method="RK23",
+        method="LSODA",
         events=events,
     )
 
