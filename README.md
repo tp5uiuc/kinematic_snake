@@ -1,3 +1,12 @@
-# Snake Kinematics [![Build_status](https://travis-ci.com/armantekinalp/elastica-python.svg?token=cqxzsQDP2cLxke4fk5XZ&branch=master)](https://travis-ci.com/armantekinalp/) [![codecov](https://codecov.io/gh/armantekinalp/elastica-python/branch/master/graph/badge.svg?token=O8nBw9I5vr)](https://codecov.io/gh/armantekinalp/elastica-python)
+# Snake Kinematics
 
-Kinematic model of snake-locomoton following Hu & Shelley (2012)
+Kinematic model of snake-locomotion, with and without lifting, following Hu & Shelley (2012). Can run single
+specified cases or many independent cases in parallel to generate a phase-space
+
+## Prerequisites
+To install required prerequisities, please do
+```shell script
+pip install -r requirements.txt
+```
+More specifically some features require latest version of `scipy.integrate` to detect
+events while integrating the non-linear ODEs.
