@@ -4,11 +4,11 @@ from functools import partial
 from sympy import sin, cos, pi
 from scipy.integrate import solve_ivp, trapz
 from collections import OrderedDict
-from kinematic_snake.kinematic_snake import KinematicSnake
+from kinematic_snake.kinematic_snake import KinematicSnake, LiftingKinematicSnake
 from os import path, makedirs
 
 
-def make_snake(froude, time_interval, **kwargs):
+def make_snake(froude, time_interval, snake_type, **kwargs):
     friction_coefficients = {"mu_f": None, "mu_b": None, "mu_lat": None}
     friction_coefficients.update(kwargs)
 
@@ -26,12 +26,34 @@ def make_snake(froude, time_interval, **kwargs):
             activation, epsilon=kwargs.get("epsilon", 7.0), wave_number=wave_number,
         ),
     )
+
     snake.set_activation(bound_activation)
+
+    if snake_type == LiftingKinematicSnake:
+        def lifting_activation(s, time_v, phase, epsilon, wave_number):
+            if time_v > 2.0:
+                liftwave = epsilon * np.cos(wave_number * np.pi * (s + phase + time_v)) + 1.0
+                np.maximum(0, liftwave, out=liftwave)
+                return liftwave / trapz(liftwave, s)
+            else:
+                return 1.0 + 0.0 * s
+
+        bound_lifting_activation = kwargs.get(
+            "lifting_activation",
+            partial(
+                lifting_activation, phase=kwargs.get("phase", 0.26), epsilon=kwargs.get("epsilon", 1.0),
+                wave_number=wave_number,
+            )
+        )
+        print(bound_lifting_activation(0.0, 0.0))
+        snake.__class__ = LiftingKinematicSnake
+        snake.set_lifting_activation(bound_lifting_activation)
+
     return snake, wave_number
 
 
-def run_snake(froude, time_interval=[0.0, 5.0], **kwargs):
-    snake, wave_number = make_snake(froude, time_interval, **kwargs)
+def run_snake(froude, time_interval=[0.0, 5.0], snake_type=KinematicSnake, **kwargs):
+    snake, wave_number = make_snake(froude, time_interval, snake_type, **kwargs)
 
     # Generate t_eval so that simulation stores data at this point, useful for computing
     # cycle-bases statistics and so on...
@@ -50,7 +72,7 @@ def run_snake(froude, time_interval=[0.0, 5.0], **kwargs):
     sol = solve_ivp(
         snake,
         time_interval,
-        snake.state.copy().reshape(-1,),
+        snake.state.copy().reshape(-1, ),
         method="RK23",
         events=events,
     )
@@ -58,7 +80,7 @@ def run_snake(froude, time_interval=[0.0, 5.0], **kwargs):
     # Append t_events and y_events to the final solution history
     # Monkey patching
     insert_idx = np.searchsorted(sol.t, sol.t_events)
-    sol.t = np.insert(sol.t, insert_idx[:, 0], np.array(sol.t_events).reshape(-1,))
+    sol.t = np.insert(sol.t, insert_idx[:, 0], np.array(sol.t_events).reshape(-1, ))
     sol.y = np.insert(
         sol.y, insert_idx[:, 0], np.squeeze(np.array(sol.y_events)).T, axis=1
     )
@@ -165,7 +187,7 @@ def run_and_visualize(*args, **kwargs):
         # skip = 1
         n_steps = sol_history.t[::skip].size
         for step, (time, solution) in enumerate(
-            zip(sol_history.t[::skip], sol_history.y.T[::skip])
+                zip(sol_history.t[::skip], sol_history.y.T[::skip])
         ):
             snake.state = solution.reshape(-1, 1)
             snake._construct(time)
@@ -306,7 +328,7 @@ if __name__ == "__main__":
     """
     # snake, sol = run_and_visualize(froude=1e-3, time_interval=[0.0, 10.0], epsilon=7.0)
     snake, sol_history = run_and_visualize(
-        froude=0.1, time_interval=[0.0, 3.0],
+        froude=0.1, time_interval=[0.0, 10.0], snake_type=LiftingKinematicSnake,
         mu_f=1.0, mu_b=1.27, mu_lat=1.81
     )
 

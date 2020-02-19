@@ -240,3 +240,30 @@ class KinematicSnake:
         dstate_dt[5] = angular_acceleration
 
         return dstate_dt
+
+
+class LiftingKinematicSnake(KinematicSnake):
+    def __init__(
+        self,
+        *,
+        froude_number: float,
+        friction_coefficients: dict,
+        samples=300,
+        **kwargs
+    ):
+        super().__init__(
+            froude_number=froude_number,
+            friction_coefficients=friction_coefficients,
+            samples=samples,
+            **kwargs
+        )
+        self.lifting_activation = None
+
+    def set_lifting_activation(self, func):
+        # lifting activation is only a function of s and t
+        print("Set liftin ativation")
+        self.lifting_activation = partial(func, self.centerline)
+
+    def external_force_distribution(self, time):
+        friction_forces = super().external_force_distribution(time)
+        return self.lifting_activation(time) * friction_forces
