@@ -50,7 +50,7 @@ class KinematicSnake:
     ):
         self.froude = froude_number if froude_number > 0.0 else -froude_number
         self.curvature_activation = None
-        self.forward_mu = friction_coefficients.get("mu_f", 1.0)
+        self.forward_mu = friction_coefficients.get("mu_f", None)
         self.backward_mu = friction_coefficients.get("mu_b", None)
         self.lateral_mu = friction_coefficients.get("mu_lat", None)
         self.samples = samples
@@ -172,6 +172,12 @@ class KinematicSnake:
             )
             * proj_along_tangent
         )
+
+        # ## Purely meant for testing purposes, ignore
+        # friction_force_lateral = ( self.lateral_mu * proj_along_normal)
+        # friction_force_fwd =  self.forward_mu * np.heaviside(mag_proj_along_tangent, 0.5) * proj_along_tangent
+        # friction_force_bwd =  self.backward_mu * np.heaviside(-mag_proj_along_tangent, 0.5) * proj_along_tangent
+        # friction_force = friction_force_lateral + friction_force_fwd + friction_force_bwd
         return -friction_force
 
     def external_torque_distribution(self, ext_force):
