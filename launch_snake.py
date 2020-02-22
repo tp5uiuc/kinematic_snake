@@ -42,7 +42,7 @@ def make_snake(froude, time_interval, snake_type, **kwargs):
             "lifting_activation",
             partial(
                 lifting_activation, phase=kwargs.get("phase", 0.26), lift_amp=kwargs.get("lift_amp", 1.0),
-                wave_number=kwargs.get("lift_wave_number", wave_number),
+                lift_wave_number=kwargs.get("lift_wave_number", wave_number),
             )
         )
         snake.__class__ = LiftingKinematicSnake
@@ -175,7 +175,7 @@ class SnakeWriter(SnakeIO):
             header_row = ["id"] + list(phase_space_kwargs[0].keys())
             csvwriter.writerow(header_row)
             for id, args_dict in zip(phase_space_ids, phase_space_kwargs):
-                temp = [id, snake_type]
+                temp = [id]
                 temp.extend(args_dict.values())
                 csvwriter.writerow(temp)
 
@@ -326,7 +326,7 @@ def run_phase_space(snake_type, **kwargs):
 
     # Need this to pass the snake type into fwd_to_run_snake
     updated_phase_space_kwargs = OrderedDict(kwargs)
-    updated_phase_space_kwargs.update({'snake_type': snake_type})
+    updated_phase_space_kwargs.update({'snake_type': [snake_type]})
     updated_phase_space_kwargs.move_to_end('snake_type', last=False)
     updated_phase_space_kwargs.move_to_end('time_interval', last=False)
     updated_phase_space_kwargs.move_to_end('froude', last=False)
@@ -450,7 +450,7 @@ def main():
             return 1.0 + 0.0 * s
 
     snake, sol_history = run_and_visualize(
-        froude=1, time_interval=[0.0, 10.0], snake_type=KinematicSnake,
+        froude=1, time_interval=[0.0, 10.0], snake_type=LiftingKinematicSnake,
         mu_f=1.0, mu_b=1.5, mu_lat=2.0,
         activation=my_custom_activation, lifting_activation=my_custom_lifting_activation
     )
