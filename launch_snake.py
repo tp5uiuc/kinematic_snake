@@ -30,9 +30,9 @@ def make_snake(froude, time_interval, snake_type, **kwargs):
     snake.set_activation(bound_activation)
 
     if snake_type == LiftingKinematicSnake:
-        def lifting_activation(s, time_v, phase, epsilon, wave_number):
+        def lifting_activation(s, time_v, phase, lift_amp, lift_wave_number):
             if time_v > 2.0:
-                liftwave = epsilon * np.cos(wave_number * np.pi * (s + phase + time_v)) + 1.0
+                liftwave = lift_amp * np.cos(lift_wave_number * np.pi * (s + phase + time_v)) + 1.0
                 np.maximum(0, liftwave, out=liftwave)
                 return liftwave / trapz(liftwave, s)
             else:
@@ -41,8 +41,8 @@ def make_snake(froude, time_interval, snake_type, **kwargs):
         bound_lifting_activation = kwargs.get(
             "lifting_activation",
             partial(
-                lifting_activation, phase=kwargs.get("phase", 0.26), epsilon=kwargs.get("epsilon", 1.0),
-                wave_number=wave_number,
+                lifting_activation, phase=kwargs.get("phase", 0.26), lift_amp=kwargs.get("lift_amp", 1.0),
+                wave_number=kwargs.get("lift_wave_number", wave_number),
             )
         )
         snake.__class__ = LiftingKinematicSnake
@@ -72,20 +72,21 @@ def run_snake(froude, time_interval=[0.0, 5.0], snake_type=KinematicSnake, **kwa
         snake,
         time_interval,
         snake.state.copy().reshape(-1, ),
-        method="LSODA",
+        method="RK23",
         events=events,
     )
 
     # Append t_events and y_events to the final solution history
     # Monkey patching
-    insert_idx = np.searchsorted(sol.t, sol.t_events)
-    sol.t = np.insert(sol.t, insert_idx[:, 0], np.array(sol.t_events).reshape(-1, ))
-    sol.y = np.insert(
-        sol.y, insert_idx[:, 0], np.squeeze(np.array(sol.y_events)).T, axis=1
-    )
+    if events is not None:
+        insert_idx = np.searchsorted(sol.t, sol.t_events)
+        sol.t = np.insert(sol.t, insert_idx[:, 0], np.array(sol.t_events).reshape(-1, ))
+        sol.y = np.insert(
+            sol.y, insert_idx[:, 0], np.squeeze(np.array(sol.y_events)).T, axis=1
+        )
 
     if time_period is None:
-        return snake, sol
+        return snake, sol, 1.0  # Fake time-period in absence of any other data
     else:
         return snake, sol, time_period
 
@@ -105,6 +106,7 @@ class SnakeReader(SnakeIO):
 
         keys = []
         values = []
+        snake_cls = None
 
         def row_count(filename):
             with open(filename) as in_file:
@@ -118,6 +120,8 @@ class SnakeReader(SnakeIO):
             csvreader = csv.reader(id_file_handler, delimiter=",")
             for row in csvreader:
                 if csvreader.line_num == 1:
+                    snake_cls = row[0]  # take name of class
+                if csvreader.line_num == 2:
                     keys = row[1:]  # take everything except id
                 if str(id) == (row[0]):
                     values = [
@@ -137,9 +141,19 @@ class SnakeReader(SnakeIO):
         with open(pickled_file_name, "rb") as pickled_file:
             sol = pickle.load(pickled_file)
 
+        ### Can use eval, but dangerous
+        if snake_cls == KinematicSnake.__name__:
+            snake_cls = KinematicSnake
+        elif snake_cls == LiftingKinematicSnake.__name__:
+            snake_cls = LiftingKinematicSnake
+        else:
+            raise ValueError("The name of class from disk is invalid! Please raise an"
+                             "error report on Github!")
+
         snake, wave_number = make_snake(
             froude=kwargs.pop("froude"),
             time_interval=kwargs.pop("time_interval"),
+            snake_type=snake_cls,
             **kwargs
         )
 
@@ -148,7 +162,7 @@ class SnakeReader(SnakeIO):
 
 class SnakeWriter(SnakeIO):
     @staticmethod
-    def write_ids_to_disk(phase_space_ids, phase_space_kwargs):
+    def write_ids_to_disk(snake_type, phase_space_ids, phase_space_kwargs):
         makedirs(SnakeWriter.data_folder_name, exist_ok=True)
 
         import csv
@@ -156,10 +170,12 @@ class SnakeWriter(SnakeIO):
         with open(SnakeWriter.id_file_name, "w", newline="") as id_file_handler:
             # Write header first
             csvwriter = csv.writer(id_file_handler, delimiter=",")
+            snake_type_str = [snake_type.__name__]
+            csvwriter.writerow(snake_type_str)
             header_row = ["id"] + list(phase_space_kwargs[0].keys())
             csvwriter.writerow(header_row)
             for id, args_dict in zip(phase_space_ids, phase_space_kwargs):
-                temp = [id]
+                temp = [id, snake_type]
                 temp.extend(args_dict.values())
                 csvwriter.writerow(temp)
 
@@ -280,7 +296,7 @@ def run_and_visualize(*args, **kwargs):
     return snake, sol_history
 
 
-def run_phase_space(**kwargs):
+def run_phase_space(snake_type, **kwargs):
     from p_tqdm import p_map
     from psutil import cpu_count
 
@@ -306,11 +322,19 @@ def run_phase_space(**kwargs):
     phase_space_ids = list(range(1, len(phase_space_kwargs) + 1))
     # write a file that contains the number-key/pairs mapping
 
-    SnakeWriter.write_ids_to_disk(phase_space_ids, phase_space_kwargs)
+    SnakeWriter.write_ids_to_disk(snake_type, phase_space_ids, phase_space_kwargs)
+
+    # Need this to pass the snake type into fwd_to_run_snake
+    updated_phase_space_kwargs = OrderedDict(kwargs)
+    updated_phase_space_kwargs.update({'snake_type': snake_type})
+    updated_phase_space_kwargs.move_to_end('snake_type', last=False)
+    updated_phase_space_kwargs.move_to_end('time_interval', last=False)
+    updated_phase_space_kwargs.move_to_end('froude', last=False)
+    updated_phase_space_kwargs_list = list(cartesian_product(**updated_phase_space_kwargs))
 
     _ = p_map(
         fwd_to_run_snake,
-        phase_space_kwargs,
+        updated_phase_space_kwargs_list,
         phase_space_ids,
         num_cpus=cpu_count(logical=False),
     )
@@ -321,45 +345,185 @@ def fwd_to_run_snake(kwargs, id):
     SnakeWriter.write_snake_to_disk(id, sol)
 
 
-if __name__ == "__main__":
+def main():
     """
-    Running a single case
+
+    Returns
+    -------
+
     """
-    # snake, sol = run_and_visualize(froude=1e-3, time_interval=[0.0, 10.0], epsilon=7.0)
+
+    """
+
+    Exploring solution space 
+    ---------------------
+
+    """
+    """
+    1.1 Running a single case with default parameters for (curvature)
+    activation (referred to as simply activation) for a non-lifting snake.
+    The default activation is a cos wave with 
+    𝜅 = ε cos (k 𝛑 (s + t))
+    where ε = 7.0 and k = 2.0
+    """
     snake, sol_history = run_and_visualize(
-        froude=0.1, time_interval=[0.0, 10.0], snake_type=LiftingKinematicSnake,
-        mu_f=1.0, mu_b=1.27, mu_lat=1.81
+        froude=1, time_interval=[0.0, 10.0], snake_type=KinematicSnake,
+        mu_f=1.0, mu_b=1.5, mu_lat=2.0
     )
 
-    # snake, sol_history = SnakeReader.load_snake_from_disk(1)
     """
+    1.2 For running a single case with non-default parameters for
+    activation (that is changing ε, k) in the activation below simply
+    𝜅 = ε cos (k 𝛑 (s + t))
+    please do the following. Note that the order of parameters beyond
+    the keyword `snake_type` does not matter.
+    """
+    epsilon = 5.0
+    wave_number = 5.0
+    snake, sol_history = run_and_visualize(
+        froude=1, time_interval=[0.0, 10.0], snake_type=KinematicSnake,
+        mu_f=1.0, mu_b=1.5, mu_lat=2.0, epsilon=epsilon, wave_number=wave_number
+    )
+
+    """
+    2.1 If you want a Lifting snake with default parameters (for both
+    activation and lifting activation), change the `snake_type` keyword
+    as shown below. 
+    
+    The default curvature activation is 𝜅 = ε cos (k_1 𝛑 (s + t))
+    The default lifting activation is A = 1 + lift_amp * cos (k_2 𝛑 (s + t + φ) )
+    where φ is the phase-difference between the curvature and lift waves. The 
+    lift waves is switched on instantaneously after t = 2.0 seconds
+    
+    Here ε = 7.0 and k_1 = 2.0 are defaulted while lift_amp = 1.0, k_2 = k_1 and
+    φ = 0.26 are set as defaults
+    """
+    snake, sol_history = run_and_visualize(
+        froude=1, time_interval=[0.0, 10.0], snake_type=LiftingKinematicSnake,
+        mu_f=1.0, mu_b=1.5, mu_lat=2.0
+    )
+
+    """
+    2.2 If you want to specify non-default parameters for either the curvature
+    or lifting wave, please do. Once again, order of keywords do not matter
+    """
+    epsilon = 5.0
+    wave_number = 5.0
+    lift_amp = 0.4
+    lift_wave_number = 2.0
+    phase = 0.3
+
+    snake, sol_history = run_and_visualize(
+        froude=1, time_interval=[0.0, 10.0], snake_type=LiftingKinematicSnake,
+        mu_f=1.0, mu_b=1.5, mu_lat=2.0, epsilon=epsilon, wave_number=wave_number,
+        lift_amp=lift_amp, lift_wave_number=lift_wave_number, phase=phase
+    )
+
+    """
+    3. If you want to rather provide your own activation functions, you can 
+    do so as shown below. Note that both the activation and lifting activation
+    need to be a function of (s,time_v) where s is the centerline and time_v
+    is the simulation time. This enables rapid prototyping for quickly changing
+    activation (say rampup time etc.)
+    
+    Note that both are optional, hence if you want to retain default curvature
+    activation, but change lifting activation, simply provide only the lifting
+    activation function!
+    
+    In case you are running a non-lifting snake, then just set the custom
+    curvature activation, the lifting activation will automatically be ignored.
+    """
+    epsilon = 7.0
+    wave_number = 2.0
+    lift_amp = 0.0
+    phase = 0.26
+
+    def my_custom_activation(s, time_v):
+        return epsilon * cos(wave_number * pi * (s + time_v))
+
+    def my_custom_lifting_activation(s, time_v):
+        if time_v > 2.0:
+            liftwave = lift_amp * np.cos(wave_number * np.pi * (s + phase + time_v)) + 1.0
+            np.maximum(0, liftwave, out=liftwave)
+            return liftwave / trapz(liftwave, s)
+        else:
+            return 1.0 + 0.0 * s
+
+    snake, sol_history = run_and_visualize(
+        froude=1, time_interval=[0.0, 10.0], snake_type=KinematicSnake,
+        mu_f=1.0, mu_b=1.5, mu_lat=2.0,
+        activation=my_custom_activation, lifting_activation=my_custom_lifting_activation
+    )
+
+    """
+    
     Running a phase-space
+    ---------------------
+    
     """
+
+    """
+    4.1 You can run a phase-space using any of the options seen before (including
+    custom functions and so on). However, due to some I/O limitations, it becomes
+    hard to store data if custom functions are passed (even with packages like `dill`
+    nd `pickle`). So for now let's restrict the list of possible functions to only
+    the default ones provided.
+    
+    With these functions, here's how you run a phase-space. We create a dict of lists
+    as parameters as shown below. The `run_phase_space` function creates a cartesian
+    product and then runs all simulations and stores the data for later re-use.
+    
+    Note that we need to provide whether the phase-space is for a KinematicSnake or a
+    LiftingSnake below, which also gets forwarded to the simulation. 
+    
+    The order of keys below does not matter, the phase-space function takes care of 
+    appropriately re-arranging it.
+    
     """
     kwargs = OrderedDict(
         {
-        "froude": [1.0, 2.0, 3.0],  # should always be at the top for now
-        "time_interval": [[0.0, 20.0]],  # should always be second for now
-        "mu_f": [1.0, 2.0],
-        "mu_b": [3.0, 4.0],
-        "mu_t": [3.0, 4.0],
-        "epsilon": [2.0, 4.0, 7.0],
-        "wave_numbers": [4., 5., 6.]
-        }
-    )
-    """
-    """
-    kwargs = OrderedDict(
-        {
-            "froude": [1.0],  # should always be at the top for now
-            "time_interval": [[0.0, 20.0]],  # should always be second for now
-            "mu_f": [1.0],
-            "mu_b": [3.0],
-            "mu_lat": [3.0],
-            "epsilon": [2.0],
-            "wave_numbers": [4.]
+            "froude": [1.0, 2.0, 3.0],
+            "time_interval": [[0.0, 20.0]],
+            "mu_f": [1.0, 2.0],
+            "mu_b": [3.0, 4.0],
+            "mu_lat": [3.0, 4.0],
+            "epsilon": [2.0, 4.0, 7.0],
+            "wave_number": [4., 5., 6.]
         }
     )
 
-    ps = run_phase_space(**kwargs)
+    ps = run_phase_space(snake_type=KinematicSnake, **kwargs)
+
     """
+    4.2 Phase-space for a LiftingSnake
+    """
+    kwargs = OrderedDict(
+        {
+            "froude": [1.0, 2.0, 3.0],
+            "time_interval": [[0.0, 20.0]],
+            "mu_f": [1.0, 2.0],
+            "mu_b": [3.0, 4.0],
+            "mu_lat": [3.0, 4.0],
+            "epsilon": [2.0, 4.0, 7.0],
+            "wave_number": [4., 5., 6.],
+            "lift_wave_number": [2.0, 3.0],
+            "lift_amp": [2.0, 3.0],
+            "phase" : [0.25, 0.5, 0.75]
+        }
+    )
+
+    """
+    5. If you want to load up a saved-snake from file (after running a
+    phase-space), you can consult the simulation_id from the `ids.csv` file
+    that the simulation creates within the `data` folder in the home directory.
+    
+    Once you know the simulation id you can pass it to the SnakeReader as shown
+    below, which constructs the snake and the time-history of COM motions. With
+    these two parameters, its possible to reconstruct all desired quantitites.
+    Look at `run_and_visualize` for a more complete example
+    """
+    snake, sol_history = SnakeReader.load_snake_from_disk(1)
+
+
+if __name__ == "__main__":
+    main()
