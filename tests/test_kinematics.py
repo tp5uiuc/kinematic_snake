@@ -101,7 +101,7 @@ class TestKinematicSnake:
         snake = KinematicSnake(
             froude_number=froude_number,
             friction_coefficients=friction_coefficients,
-            samples=20,
+            samples=50,
         )
         snake.set_activation(activation)
         snake._construct(0.0)
@@ -175,7 +175,7 @@ class TestKinematicSnake:
         # 2 * (l/2)^3 / 3.0
         expected_moment_of_inertia = 2.0 * (1.0 / 2.0) ** 3 / 3.0
 
-        assert_allclose(moment_of_inertia, expected_moment_of_inertia, rtol=1e-4)
+        assert_allclose(moment_of_inertia, expected_moment_of_inertia, rtol=1e-4, atol=1e-4)
 
     def test_internal_torque(self, load_snake):
         snake, fc = load_snake
