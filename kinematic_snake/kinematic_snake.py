@@ -144,6 +144,87 @@ class KinematicSnake:
             self.dx_ds_perp * self.dtheta_dt
         )
 
+    def __calculate_vector_in_velocity_direction(self):
+        dx_dt_com = self.state[3:5, ...].reshape(-1,)
+        mag_dx_dt_com = np.linalg.norm(dx_dt_com, 2)
+        return dx_dt_com, mag_dx_dt_com
+
+    def __calculate_pose_impl(self, dx_dt_com, mag_dx_dt_com):
+        theta_com = self.state[2, ...]
+        unit_vector_in_average_orientation_direction = np.array(
+            [np.cos(theta_com), np.sin(theta_com)]
+        ).reshape(-1,)
+        return np.arccos(
+            np.inner(dx_dt_com, unit_vector_in_average_orientation_direction)
+            / mag_dx_dt_com
+        )
+
+    def calculate_instantaneous_pose_angle(self, time=0.0):
+        """
+        Angle between the instantaneous velocity vector and
+        the average angle (theta_com) of the snake
+
+        Returns
+        -------
+
+        """
+        dx_dt_com, mag_dx_dt_com = self.__calculate_vector_in_velocity_direction()
+        return self.__calculate_pose_impl(dx_dt_com, mag_dx_dt_com)
+
+    def calculate_instantaneous_pose_rate(self, time):
+        """ Checked with a finite-difference version, seems to match-up
+
+        Parameters
+        ----------
+        time
+
+        Returns
+        -------
+
+        """
+        dx_dt_com, mag_dx_dt_com = self.__calculate_vector_in_velocity_direction()
+
+        pose_angle = self.__calculate_pose_impl(dx_dt_com, mag_dx_dt_com)
+
+        # Linear accelerations, a (2,) array
+        external_force_distribution = self.external_force_distribution(time)
+        linear_acceleration = (
+            trapz(external_force_distribution, self.centerline) / self.froude
+        ).reshape(-1,)
+
+        theta_com = self.state[2, ...]
+        unit_vector_in_average_orientation_direction = np.array(
+            [np.cos(theta_com), np.sin(theta_com)]
+        ).reshape(-1,)
+        first_rhs = np.inner(
+            linear_acceleration, unit_vector_in_average_orientation_direction
+        )
+
+        unit_vector_perp_to_average_orientation = np.array(
+            [-np.sin(theta_com), np.cos(theta_com)]
+        ).reshape(-1,)
+        second_rhs = (
+            np.inner(dx_dt_com, unit_vector_perp_to_average_orientation)
+            * self.state[5, 0]
+        )  # last term is theta_dot_com as state is a (6,1) array
+
+        mod_dx_dt_dot = np.inner(dx_dt_com, linear_acceleration) / mag_dx_dt_com
+        term_from_lhs = np.cos(pose_angle) * mod_dx_dt_dot
+
+        return (
+            -(first_rhs + second_rhs - term_from_lhs)
+            / mag_dx_dt_com
+            / np.sin(pose_angle)
+        )
+
+    def calculate_instantaneous_steering_angle(self, time=0.0):
+        return (
+            self.state[2, 0] + self.calculate_instantaneous_pose_angle() - 0.5 * np.pi
+        )
+
+    def calculate_instantaneous_steering_rate(self, time):
+        return self.state[5, 0] + self.calculate_instantaneous_pose_rate(time)
+
     def calculate_moment_of_inertia(self):
         # distribution of moments first, (x-x_com)^T (x - x_com)
         x_minus_xcom = self.x_s - self.state[:2, ...]
