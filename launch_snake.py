@@ -170,8 +170,12 @@ class SnakeReader(SnakeIO):
 
 class SnakeWriter(SnakeIO):
     @staticmethod
-    def write_ids_to_disk(snake_type, phase_space_ids, phase_space_kwargs):
+    def make_data_directory():
         makedirs(SnakeWriter.data_folder_name, exist_ok=True)
+
+    @staticmethod
+    def write_ids_to_disk(snake_type, phase_space_ids, phase_space_kwargs):
+        SnakeWriter.make_data_directory()
 
         import csv
 
@@ -519,8 +523,9 @@ def run_phase_space(snake_type, **kwargs):
     phase_space_ids = list(range(1, len(phase_space_kwargs) + 1))
 
     # write a file that contains the number-key/pairs mapping
-    # Pospone till after simulations are done
+    # Pospone till after simulations are done, but make the directory immediately
     # SnakeWriter.write_ids_to_disk(snake_type, phase_space_ids, phase_space_kwargs)
+    SnakeWriter.make_data_directory()
 
     # Need this to pass the snake type into fwd_to_run_snake
     updated_phase_space_kwargs = OrderedDict(kwargs)
