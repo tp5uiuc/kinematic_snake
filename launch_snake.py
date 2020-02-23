@@ -30,9 +30,13 @@ def make_snake(froude, time_interval, snake_type, **kwargs):
     snake.set_activation(bound_activation)
 
     if snake_type == LiftingKinematicSnake:
+
         def lifting_activation(s, time_v, phase, lift_amp, lift_wave_number):
             if time_v > 2.0:
-                liftwave = lift_amp * np.cos(lift_wave_number * np.pi * (s + phase + time_v)) + 1.0
+                liftwave = (
+                    lift_amp * np.cos(lift_wave_number * np.pi * (s + phase + time_v))
+                    + 1.0
+                )
                 np.maximum(0, liftwave, out=liftwave)
                 return liftwave / trapz(liftwave, s)
             else:
@@ -41,9 +45,11 @@ def make_snake(froude, time_interval, snake_type, **kwargs):
         bound_lifting_activation = kwargs.get(
             "lifting_activation",
             partial(
-                lifting_activation, phase=kwargs.get("phase", 0.26), lift_amp=kwargs.get("lift_amp", 1.0),
+                lifting_activation,
+                phase=kwargs.get("phase", 0.26),
+                lift_amp=kwargs.get("lift_amp", 1.0),
                 lift_wave_number=kwargs.get("lift_wave_number", wave_number),
-            )
+            ),
         )
         snake.__class__ = LiftingKinematicSnake
         snake.set_lifting_activation(bound_lifting_activation)
@@ -71,7 +77,7 @@ def run_snake(froude, time_interval=[0.0, 5.0], snake_type=KinematicSnake, **kwa
     sol = solve_ivp(
         snake,
         time_interval,
-        snake.state.copy().reshape(-1, ),
+        snake.state.copy().reshape(-1,),
         method="RK23",
         events=events,
     )
@@ -80,7 +86,7 @@ def run_snake(froude, time_interval=[0.0, 5.0], snake_type=KinematicSnake, **kwa
     # Monkey patching
     if events is not None:
         insert_idx = np.searchsorted(sol.t, sol.t_events)
-        sol.t = np.insert(sol.t, insert_idx[:, 0], np.array(sol.t_events).reshape(-1, ))
+        sol.t = np.insert(sol.t, insert_idx[:, 0], np.array(sol.t_events).reshape(-1,))
         sol.y = np.insert(
             sol.y, insert_idx[:, 0], np.squeeze(np.array(sol.y_events)).T, axis=1
         )
@@ -147,8 +153,10 @@ class SnakeReader(SnakeIO):
         elif snake_cls == LiftingKinematicSnake.__name__:
             snake_cls = LiftingKinematicSnake
         else:
-            raise ValueError("The name of class from disk is invalid! Please raise an"
-                             "error report on Github!")
+            raise ValueError(
+                "The name of class from disk is invalid! Please raise an"
+                "error report on Github!"
+            )
 
         snake, wave_number = make_snake(
             froude=kwargs.pop("froude"),
@@ -188,6 +196,74 @@ class SnakeWriter(SnakeIO):
             pickle.dump(sol, file_handler)
 
 
+def calculate_period_idx(fin_time, t_period, sol_his):
+    candidate_n_past_periods = 8
+    # Give a transitent of at leat 0.4*final_time
+    n_past_periods = (
+        candidate_n_past_periods
+        if ((fin_time - candidate_n_past_periods * t_period) > 0.4 * fin_time)
+        else 3
+    )
+    past_period_idx = np.argmin(
+        np.abs(sol_his.t - (fin_time - n_past_periods * t_period))
+    )
+    return past_period_idx, n_past_periods * t_period
+
+
+def calculate_statistics(
+    sim_snake,
+    sol_his,
+    past_per_index,
+    past_time,
+    pose_ang_his=None,
+    steer_ang_his=None,
+    pose_rate_his=None,
+    steer_rate_his=None,
+):
+    """ Calculate average pose angle, average pose_angle_rate
+    and average turning_rate statistics
+
+    Returns
+    -------
+
+    """
+    n_steps = sol_his.t.size
+
+    if pose_ang_his is None:
+        pose_ang_his = np.zeros((n_steps,))
+    if steer_ang_his is None:
+        steer_ang_his = np.zeros((n_steps,))
+    if pose_rate_his is None:
+        pose_rate_his = np.zeros((n_steps,))
+    if steer_rate_his is None:
+        steer_rate_his = np.zeros((n_steps,))
+
+    for step, (time, solution) in enumerate(zip(sol_his.t, sol_his.y.T)):
+        sim_snake.state = solution.reshape(-1, 1)
+        sim_snake._construct(time)
+
+        pose_ang_his[step] = sim_snake.calculate_instantaneous_pose_angle(time)
+        steer_ang_his[step] = sim_snake.calculate_instantaneous_steering_angle(time)
+
+        pose_rate_his[step] = sim_snake.calculate_instantaneous_pose_rate(time)
+        steer_rate_his[step] = sim_snake.calculate_instantaneous_steering_rate(time)
+
+    def averager(x):
+        # calculate average statistics
+        avg_val = (
+            trapz(x[..., past_per_index:], sol_his.t[past_per_index:], axis=-1,)
+            / past_time
+        )
+        return avg_val
+
+    return {
+        "average_pose_angle": averager(pose_ang_his),
+        "average_steer_angle": averager(steer_ang_his),
+        "average_pose_rate": averager(pose_rate_his),
+        "average_steer_rate": averager(steer_rate_his),
+    }
+
+
 def run_and_visualize(*args, **kwargs):
     snake, sol_history, time_period = run_snake(*args, **kwargs)
 
@@ -197,12 +273,20 @@ def run_and_visualize(*args, **kwargs):
     with plt.style.context("fivethirtyeight"):
         phys_space_fig = plt.figure(figsize=(10, 8))
         phys_space_ax = phys_space_fig.add_subplot(111)
+
+        angle_fig = plt.figure(figsize=(10, 8))
+        angle_ax = angle_fig.add_subplot(111)
+
+        angle_rate_fig = plt.figure(figsize=(10, 8))
+        angle_rate_ax = angle_rate_fig.add_subplot(111)
+
         n_steps = sol_history.t.size
         skip = max(int(n_steps / 20), 1)
         # skip = 1
         n_steps = sol_history.t[::skip].size
+
         for step, (time, solution) in enumerate(
-                zip(sol_history.t[::skip], sol_history.y.T[::skip])
+            zip(sol_history.t[::skip], sol_history.y.T[::skip])
         ):
             snake.state = solution.reshape(-1, 1)
             snake._construct(time)
@@ -214,6 +298,7 @@ def run_and_visualize(*args, **kwargs):
                 alpha=10 ** (step / n_steps - 1),
                 lw=2,
             )
+
         quiver_skip = int(snake.centerline.size / 30)
         phys_space_ax.quiver(
             snake.x_s[0, ::quiver_skip],
@@ -223,15 +308,111 @@ def run_and_visualize(*args, **kwargs):
         )
         phys_space_ax.set_aspect("equal")
 
+        n_steps = sol_history.t.size
+
+        pose_angle_history = np.zeros((n_steps,))
+        steering_angle_history = np.zeros((n_steps,))
+
+        pose_rate_history = np.zeros((n_steps,))
+        steering_rate_history = np.zeros((n_steps,))
+
+        # Determine time for average statistics
+        # Average statistics
+        # calculate snake motion axes based on n_past_periods time-periods
+        final_time = kwargs["time_interval"][1]
+
+        past_period_idx, time_elapsed_in_past_periods = calculate_period_idx(
+            final_time, time_period, sol_history
+        )
+
+        statistics = calculate_statistics(
+            snake,
+            sol_history,
+            past_period_idx,
+            time_elapsed_in_past_periods,
+            pose_angle_history,
+            steering_angle_history,
+            pose_rate_history,
+            steering_rate_history,
+        )
+
+        (
+            avg_pos_angle,
+            avg_steer_angle,
+            avg_pos_rate,
+            avg_steer_rate,
+        ) = statistics.values()
+
+        angle_ax.plot(
+            sol_history.t,
+            pose_angle_history,
+            marker="o",
+            c=to_rgb("xkcd:bluish"),
+            label="pose",
+            lw=2,
+        )
+        angle_ax.hlines(
+            y=avg_pos_angle,
+            xmin=sol_history.t[0],
+            xmax=sol_history.t[-1],
+            lw=2,
+            colors="k",
+            linestyles="dashed",
+        )
+        angle_ax.plot(
+            sol_history.t,
+            steering_angle_history,
+            marker="o",
+            c=to_rgb("xkcd:reddish"),
+            label="steering",
+            lw=2,
+        )
+        angle_ax.hlines(
+            y=avg_steer_angle,
+            xmin=sol_history.t[0],
+            xmax=sol_history.t[-1],
+            lw=2,
+            colors="k",
+            linestyles="dashed",
+        )
+        angle_ax.legend()
+
+        angle_rate_ax.plot(
+            sol_history.t,
+            pose_rate_history,
+            marker="o",
+            c=to_rgb("xkcd:bluish"),
+            label="pose_rate",
+            lw=2,
+        )
+        angle_rate_ax.hlines(
+            y=avg_pos_rate,
+            xmin=sol_history.t[0],
+            xmax=sol_history.t[-1],
+            lw=2,
+            colors="k",
+            linestyles="dashed",
+        )
+        angle_rate_ax.plot(
+            sol_history.t,
+            steering_rate_history,
+            marker="o",
+            c=to_rgb("xkcd:reddish"),
+            label="steering_rate",
+            lw=2,
+        )
+        angle_rate_ax.hlines(
+            y=avg_steer_rate,
+            xmin=sol_history.t[0],
+            xmax=sol_history.t[-1],
+            lw=2,
+            colors="k",
+            linestyles="dashed",
+        )
+        angle_rate_ax.legend()
+
         velocity_fig = plt.figure(figsize=(10, 8))
         velocity_ax = velocity_fig.add_subplot(111)
-
-        # calculate snake motion axes based on last-three time-periods
-        n_past_periods = 3
-        final_time = kwargs["time_interval"][1]
-        past_period_idx = np.argmin(
-            np.abs(sol_history.t - (final_time - n_past_periods * time_period))
-        )
 
         # as a bonus, plot it on the physical axes
         phys_space_ax.plot(
@@ -244,55 +425,71 @@ def run_and_visualize(*args, **kwargs):
         travel_axes = sol_history.y[:2, -1] - sol_history.y[:2, past_period_idx]
         travel_axes /= np.linalg.norm(travel_axes, ord=2)
         com_velocity = sol_history.y[3:5, ...]
-        # Broadcast shape
-        lateral_axes = np.array([-travel_axes[1], travel_axes[0]])
-        travel_axes = travel_axes.reshape(-1, 1) + 0.0 * com_velocity
-        lateral_axes = lateral_axes.reshape(-1, 1) + 0.0 * com_velocity
-        from kinematic_snake.kinematic_snake import project
 
-        mag_projected_velocity_along_travel, _ = project(com_velocity, travel_axes)
-        mag_projected_velocity_along_lateral, _ = project(com_velocity, lateral_axes)
-        projected_velocity = np.vstack(
-            (mag_projected_velocity_along_travel, mag_projected_velocity_along_lateral)
-        )
+        if kwargs.get("snake_type") == KinematicSnake:
+            # Broadcast shape
+            lateral_axes = np.array([-travel_axes[1], travel_axes[0]])
+            travel_axes = travel_axes.reshape(-1, 1) + 0.0 * com_velocity
+            lateral_axes = lateral_axes.reshape(-1, 1) + 0.0 * com_velocity
+            from kinematic_snake.kinematic_snake import project
 
-        # calculate average statistics
-        avg_projected_velocity = trapz(
-            projected_velocity[..., past_period_idx:],
-            sol_history.t[past_period_idx:],
-            axis=-1,
-        ) / (n_past_periods * time_period)
+            mag_projected_velocity_along_travel, _ = project(com_velocity, travel_axes)
+            mag_projected_velocity_along_lateral, _ = project(
+                com_velocity, lateral_axes
+            )
+            projected_velocity = np.vstack(
+                (
+                    mag_projected_velocity_along_travel,
+                    mag_projected_velocity_along_lateral,
+                )
+            )
 
-        velocity_ax.plot(sol_history.t, projected_velocity[0], lw=2, label="fwd")
-        velocity_ax.plot(sol_history.t, projected_velocity[1], lw=2, label="trans")
-        velocity_ax.hlines(
-            y=avg_projected_velocity[0],
-            xmin=sol_history.t[0],
-            xmax=sol_history.t[-1],
-            lw=2,
-            colors="k",
-            linestyles="dashed",
-        )
-        velocity_ax.hlines(
-            y=avg_projected_velocity[1],
-            xmin=sol_history.t[0],
-            xmax=sol_history.t[-1],
-            lw=2,
-            colors="k",
-            linestyles="dashed",
-        )
-        velocity_ax.plot(
-            sol_history.t, com_velocity[0], lw=1, linestyle="--", label="x"
-        )
-        velocity_ax.plot(
-            sol_history.t, com_velocity[1], lw=1, linestyle="--", label="y"
-        )
+            # calculate average statistics
+            avg_projected_velocity = (
+                trapz(
+                    projected_velocity[..., past_period_idx:],
+                    sol_history.t[past_period_idx:],
+                    axis=-1,
+                )
+                / time_elapsed_in_past_periods
+            )
+
+            velocity_ax.plot(sol_history.t, projected_velocity[0], lw=2, label="fwd")
+            velocity_ax.plot(sol_history.t, projected_velocity[1], lw=2, label="trans")
+            velocity_ax.hlines(
+                y=avg_projected_velocity[0],
+                xmin=sol_history.t[0],
+                xmax=sol_history.t[-1],
+                lw=2,
+                colors="k",
+                linestyles="dashed",
+            )
+            velocity_ax.hlines(
+                y=avg_projected_velocity[1],
+                xmin=sol_history.t[0],
+                xmax=sol_history.t[-1],
+                lw=2,
+                colors="k",
+                linestyles="dashed",
+            )
+            velocity_ax.plot(
+                sol_history.t, com_velocity[0], lw=1, linestyle="--", label="x"
+            )
+            velocity_ax.plot(
+                sol_history.t, com_velocity[1], lw=1, linestyle="--", label="y"
+            )
+        elif kwargs.get("snake_type", LiftingKinematicSnake):
+            velocity_ax.plot(sol_history.t, com_velocity[0], lw=2, label="x")
+            velocity_ax.plot(sol_history.t, com_velocity[1], lw=2, label="y")
+
         velocity_ax.legend()
 
-    phys_space_fig.show()
-    velocity_fig.show()
-    plt.show()
-    print(avg_projected_velocity)
+        phys_space_fig.show()
+        angle_fig.show()
+        angle_rate_fig.show()
+        velocity_fig.show()
+        plt.show()
+        # print(avg_projected_velocity)
     return snake, sol_history
 
 
@@ -320,29 +517,49 @@ def run_phase_space(snake_type, **kwargs):
 
     phase_space_kwargs = list(cartesian_product(**kwargs))
     phase_space_ids = list(range(1, len(phase_space_kwargs) + 1))
-    # write a file that contains the number-key/pairs mapping
 
-    SnakeWriter.write_ids_to_disk(snake_type, phase_space_ids, phase_space_kwargs)
+    # write a file that contains the number-key/pairs mapping
+    # Pospone till after simulations are done
+    # SnakeWriter.write_ids_to_disk(snake_type, phase_space_ids, phase_space_kwargs)
 
     # Need this to pass the snake type into fwd_to_run_snake
     updated_phase_space_kwargs = OrderedDict(kwargs)
-    updated_phase_space_kwargs.update({'snake_type': [snake_type]})
-    updated_phase_space_kwargs.move_to_end('snake_type', last=False)
-    updated_phase_space_kwargs.move_to_end('time_interval', last=False)
-    updated_phase_space_kwargs.move_to_end('froude', last=False)
-    updated_phase_space_kwargs_list = list(cartesian_product(**updated_phase_space_kwargs))
+    updated_phase_space_kwargs.update({"snake_type": [snake_type]})
+    updated_phase_space_kwargs.move_to_end("snake_type", last=False)
+    updated_phase_space_kwargs.move_to_end("time_interval", last=False)
+    updated_phase_space_kwargs.move_to_end("froude", last=False)
+    updated_phase_space_kwargs_list = list(
+        cartesian_product(**updated_phase_space_kwargs)
+    )
 
-    _ = p_map(
+    # fwd_to_run_snake(updated_phase_space_kwargs[0], phase_space_ids[0])
+    statistics = p_map(
         fwd_to_run_snake,
         updated_phase_space_kwargs_list,
         phase_space_ids,
         num_cpus=cpu_count(logical=False),
     )
 
+    # Append together the statistics and arguments
+    for args, stats in zip(phase_space_kwargs, statistics):
+        args.update(stats)
+
+    SnakeWriter.write_ids_to_disk(snake_type, phase_space_ids, phase_space_kwargs)
+
 
 def fwd_to_run_snake(kwargs, id):
-    snake, sol, time_period = run_snake(**kwargs)
-    SnakeWriter.write_snake_to_disk(id, sol)
+    snake, sol_history, time_period = run_snake(**kwargs)
+    SnakeWriter.write_snake_to_disk(id, sol_history)
+
+    final_time = kwargs["time_interval"][1]
+
+    past_period_idx, time_elapsed_in_past_periods = calculate_period_idx(
+        final_time, time_period, sol_history
+    )
+
+    return calculate_statistics(
+        snake, sol_history, past_period_idx, time_elapsed_in_past_periods
+    )
 
 
 def main():
@@ -367,8 +584,12 @@ def main():
     where ε = 7.0 and k = 2.0
     """
     snake, sol_history = run_and_visualize(
-        froude=1, time_interval=[0.0, 10.0], snake_type=KinematicSnake,
-        mu_f=1.0, mu_b=1.5, mu_lat=2.0
+        froude=1,
+        time_interval=[0.0, 10.0],
+        snake_type=KinematicSnake,
+        mu_f=1.0,
+        mu_b=1.5,
+        mu_lat=2.0,
     )
 
     """
@@ -381,8 +602,14 @@ def main():
     epsilon = 5.0
     wave_number = 5.0
     snake, sol_history = run_and_visualize(
-        froude=1, time_interval=[0.0, 10.0], snake_type=KinematicSnake,
-        mu_f=1.0, mu_b=1.5, mu_lat=2.0, epsilon=epsilon, wave_number=wave_number
+        froude=1,
+        time_interval=[0.0, 10.0],
+        snake_type=KinematicSnake,
+        mu_f=1.0,
+        mu_b=1.5,
+        mu_lat=2.0,
+        epsilon=epsilon,
+        wave_number=wave_number,
     )
 
     """
@@ -399,8 +626,12 @@ def main():
     φ = 0.26 are set as defaults
     """
     snake, sol_history = run_and_visualize(
-        froude=1, time_interval=[0.0, 10.0], snake_type=LiftingKinematicSnake,
-        mu_f=1.0, mu_b=1.5, mu_lat=2.0
+        froude=1,
+        time_interval=[0.0, 10.0],
+        snake_type=LiftingKinematicSnake,
+        mu_f=1.0,
+        mu_b=1.5,
+        mu_lat=2.0,
     )
 
     """
@@ -414,9 +645,17 @@ def main():
     phase = 0.3
 
     snake, sol_history = run_and_visualize(
-        froude=1, time_interval=[0.0, 10.0], snake_type=LiftingKinematicSnake,
-        mu_f=1.0, mu_b=1.5, mu_lat=2.0, epsilon=epsilon, wave_number=wave_number,
-        lift_amp=lift_amp, lift_wave_number=lift_wave_number, phase=phase
+        froude=1,
+        time_interval=[0.0, 10.0],
+        snake_type=LiftingKinematicSnake,
+        mu_f=1.0,
+        mu_b=1.5,
+        mu_lat=2.0,
+        epsilon=epsilon,
+        wave_number=wave_number,
+        lift_amp=lift_amp,
+        lift_wave_number=lift_wave_number,
+        phase=phase,
     )
 
     """
@@ -443,16 +682,23 @@ def main():
 
     def my_custom_lifting_activation(s, time_v):
         if time_v > 2.0:
-            liftwave = lift_amp * np.cos(wave_number * np.pi * (s + phase + time_v)) + 1.0
+            liftwave = (
+                lift_amp * np.cos(wave_number * np.pi * (s + phase + time_v)) + 1.0
+            )
             np.maximum(0, liftwave, out=liftwave)
             return liftwave / trapz(liftwave, s)
         else:
             return 1.0 + 0.0 * s
 
     snake, sol_history = run_and_visualize(
-        froude=1, time_interval=[0.0, 10.0], snake_type=LiftingKinematicSnake,
-        mu_f=1.0, mu_b=1.5, mu_lat=2.0,
-        activation=my_custom_activation, lifting_activation=my_custom_lifting_activation
+        froude=1,
+        time_interval=[0.0, 10.0],
+        snake_type=LiftingKinematicSnake,
+        mu_f=1.0,
+        mu_b=1.5,
+        mu_lat=2.0,
+        activation=my_custom_activation,
+        lifting_activation=my_custom_lifting_activation,
     )
 
     """
@@ -488,7 +734,7 @@ def main():
             "mu_b": [3.0, 4.0],
             "mu_lat": [3.0, 4.0],
             "epsilon": [2.0, 4.0, 7.0],
-            "wave_number": [4., 5., 6.]
+            "wave_number": [4.0, 5.0, 6.0],
         }
     )
 
@@ -505,10 +751,10 @@ def main():
             "mu_b": [3.0, 4.0],
             "mu_lat": [3.0, 4.0],
             "epsilon": [2.0, 4.0, 7.0],
-            "wave_number": [4., 5., 6.],
+            "wave_number": [4.0, 5.0, 6.0],
             "lift_wave_number": [2.0, 3.0],
             "lift_amp": [2.0, 3.0],
-            "phase" : [0.25, 0.5, 0.75]
+            "phase": [0.25, 0.5, 0.75],
         }
     )
 
