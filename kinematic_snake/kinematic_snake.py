@@ -154,10 +154,11 @@ class KinematicSnake:
         unit_vector_in_average_orientation_direction = np.array(
             [np.cos(theta_com), np.sin(theta_com)]
         ).reshape(-1,)
-        return np.arccos(
-            np.inner(dx_dt_com, unit_vector_in_average_orientation_direction)
-            / mag_dx_dt_com
-        )
+        with np.errstate(invalid="ignore"):
+            return np.arccos(
+                np.inner(dx_dt_com, unit_vector_in_average_orientation_direction)
+                / mag_dx_dt_com
+            )
 
     def calculate_instantaneous_pose_angle(self, time=0.0):
         """
@@ -208,7 +209,8 @@ class KinematicSnake:
             * self.state[5, 0]
         )  # last term is theta_dot_com as state is a (6,1) array
 
-        mod_dx_dt_dot = np.inner(dx_dt_com, linear_acceleration) / mag_dx_dt_com
+        with np.errstate(invalid="ignore"):
+            mod_dx_dt_dot = np.inner(dx_dt_com, linear_acceleration) / mag_dx_dt_com
         term_from_lhs = np.cos(pose_angle) * mod_dx_dt_dot
 
         return (
