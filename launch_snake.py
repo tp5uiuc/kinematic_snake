@@ -80,6 +80,7 @@ def run_snake(froude, time_interval=[0.0, 5.0], snake_type=KinematicSnake, **kwa
         snake.state.copy().reshape(-1,),
         method="RK23",
         events=events,
+        # t_eval = np.linspace(time_interval[0], time_interval[1], 1e4)
     )
 
     # Append t_events and y_events to the final solution history
@@ -249,11 +250,22 @@ def calculate_statistics(
         pose_ang_his[step] = sim_snake.calculate_instantaneous_pose_angle(time)
         steer_ang_his[step] = sim_snake.calculate_instantaneous_steering_angle(time)
 
-        pose_rate_his[step] = sim_snake.calculate_instantaneous_pose_rate(time)
-        steer_rate_his[step] = sim_snake.calculate_instantaneous_steering_rate(time)
+        ## FIXME : Correct rate calculation
+        #### Don't compute pose_rate analytically because it's wrong.
+
+    pose_rate_his[0] = 0.0
+    steer_rate_his[0] = 0.0
+    for step in range(sol_his.t.size - 2):
+        pose_rate_his[step + 1] = (pose_ang_his[step + 2] - pose_ang_his[step]) / (
+            sol_his.t[step + 2] - sol_his.t[step]
+        )
+        steer_rate_his[step + 1] = (steer_ang_his[step + 2] - steer_ang_his[step]) / (
+            sol_his.t[step + 2] - sol_his.t[step]
+        )
 
     def averager(x):
         # calculate average statistics
+        # assert(np.allclose(past_time, sol_his.t[-1] - sol_his.t[past_per_index]))
         avg_val = (
             trapz(x[..., past_per_index:], sol_his.t[past_per_index:], axis=-1,)
             / past_time
@@ -273,6 +285,46 @@ def run_and_visualize(*args, **kwargs):
 
     from matplotlib import pyplot as plt
     from matplotlib.colors import to_rgb
+
+    # Ugly hack from now
+    # FIXME : Abstract this away from the user
+    PLOT_VIDEO = False
+    if PLOT_VIDEO:
+        import matplotlib.animation as manimation
+
+        plt.rcParams.update({"font.size": 22})
+
+        FFMpegWriter = manimation.writers["ffmpeg"]
+        metadata = dict(
+            title="Movie Test", artist="Matplotlib", comment="Movie support!"
+        )
+        fps = 60
+        writer = FFMpegWriter(fps=fps, metadata=metadata)
+        dpi = 200
+        fig = plt.figure(figsize=(10, 8), frameon=True, dpi=dpi)
+        ax = fig.add_subplot(111)
+        ax.set_aspect("equal", adjustable="box")
+        # plt.axis("square")
+        time = 0.0
+        solution = sol_history.y.T[0]
+        snake.state = solution.reshape(-1, 1)
+        snake._construct(time)
+        (snake_centerline,) = ax.plot(snake.x_s[0, ...], snake.x_s[1, ...], lw=2.0)
+        ax.set_aspect("equal", adjustable="box")
+        video_name = "snake.mp4"
+        ax.set_xlim([-1.0, 1.0])
+        ax.set_ylim([-1.0, 1.0])
+        video_skip = 8
+        with writer.saving(fig, video_name, dpi):
+            with plt.style.context("fivethirtyeight"):
+                for time, solution in zip(
+                    sol_history.t[1::video_skip], sol_history.y.T[1::video_skip]
+                ):
+                    snake.state = solution.reshape(-1, 1)
+                    snake._construct(time)
+                    snake_centerline.set_xdata(snake.x_s[0, ...])
+                    snake_centerline.set_ydata(snake.x_s[1, ...])
+                    writer.grab_frame()
 
     with plt.style.context("fivethirtyeight"):
         phys_space_fig = plt.figure(figsize=(10, 8))

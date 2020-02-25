@@ -146,7 +146,7 @@ class KinematicSnake:
 
     def __calculate_vector_in_velocity_direction(self):
         dx_dt_com = self.state[3:5, ...].reshape(-1,)
-        mag_dx_dt_com = np.linalg.norm(dx_dt_com, 2)
+        mag_dx_dt_com = np.linalg.norm(dx_dt_com)
         return dx_dt_com, mag_dx_dt_com
 
     def __calculate_pose_impl(self, dx_dt_com, mag_dx_dt_com):
@@ -155,10 +155,17 @@ class KinematicSnake:
             [np.cos(theta_com), np.sin(theta_com)]
         ).reshape(-1,)
         with np.errstate(invalid="ignore"):
-            return np.arccos(
-                np.inner(dx_dt_com, unit_vector_in_average_orientation_direction)
+            # Similar to doing an arctan in relative coordinates
+            signbit = np.sign(
+                np.cross(unit_vector_in_average_orientation_direction, dx_dt_com)
+            )
+            dot_product = (
+                np.inner(unit_vector_in_average_orientation_direction, dx_dt_com)
                 / mag_dx_dt_com
             )
+            # normalized_ = np.linalg.norm(dx_dt_com/mag_dx_dt_com)
+            # if np.isfinite(normalized_) : assert (np.allclose(normalized_, 1.0))
+            return signbit * np.arccos(dot_product)
 
     def calculate_instantaneous_pose_angle(self, time=0.0):
         """

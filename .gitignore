@@ -235,4 +235,5 @@ fabric.properties
 #launch_snake.py
 data/
 *local*
-
+# My snake videos
+*.mp4
