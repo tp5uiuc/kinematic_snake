@@ -272,11 +272,16 @@ def calculate_statistics(
         )
         return avg_val
 
+    # Get \dot{x} and \dot{y} to compute norms
+    velocity_com = sol_his.y[3:5, ...]
+    average_speed = np.linalg.norm(velocity_com, axis=0)
+
     return {
         "average_pose_angle": averager(pose_ang_his),
         "average_steer_angle": averager(steer_ang_his),
         "average_pose_rate": averager(pose_rate_his),
         "average_steer_rate": averager(steer_rate_his),
+        "average_speed" : averager(average_speed)
     }
 
 
@@ -397,6 +402,7 @@ def run_and_visualize(*args, **kwargs):
             avg_steer_angle,
             avg_pos_rate,
             avg_steer_rate,
+            avg_speed
         ) = statistics.values()
 
         angle_ax.plot(
@@ -538,6 +544,15 @@ def run_and_visualize(*args, **kwargs):
             velocity_ax.plot(sol_history.t, com_velocity[0], lw=2, label="x")
             velocity_ax.plot(sol_history.t, com_velocity[1], lw=2, label="y")
 
+        velocity_ax.hlines(
+            y=avg_speed,
+            xmin=sol_history.t[0],
+            xmax=sol_history.t[-1],
+            lw=0.5,
+            colors="k",
+            linestyles="dashed",
+            label='average speed (mag vel)'
+        )
         velocity_ax.legend()
 
         phys_space_fig.show()
@@ -546,7 +561,7 @@ def run_and_visualize(*args, **kwargs):
         velocity_fig.show()
         plt.show()
         # print(avg_projected_velocity)
-    return snake, sol_history
+    return snake, sol_history, time_period
 
 
 def run_phase_space(snake_type, **kwargs):
