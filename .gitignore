@@ -237,3 +237,5 @@ data/
 *local*
 # My snake videos
 *.mp4
+# Plotting a local cirlce
+plot_fit_circle.py
