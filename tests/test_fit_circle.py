@@ -2,7 +2,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from kinematic_snake.circle_fit import circle_fit_impl
+from kinematic_snake.circle_fit import circle_fit_impl, fit_circle_to_data
 
 
 class TestCircleFit:
@@ -72,3 +72,26 @@ class TestCircleFit:
         assert np.abs(center[0, 0] - xc) < variability
         assert np.abs(center[1, 0] - yc) < variability
         assert_allclose(np.mean(radius), r, rtol=1e-2)
+
+    def test_circle_fit_for_straight_line_data(self):
+        n_samples = 20
+        x = np.linspace(0.0, 1.0, n_samples)
+        y = 0.0 * x
+        position_vector = np.vstack((x, y))
+
+        xc, yc, r = fit_circle_to_data(position_vector, verbose=True)
+
+        assert r > 1e4
+
+    def test_circle_fit_for_almost_straight_line_data(self):
+        n_samples = 20
+        x = np.linspace(0.0, 1.0, n_samples)
+        y = 0.1 * x
+        y += 0.05 * np.random.random_sample(n_samples)
+        position_vector = np.vstack((x, y))
+
+        xc, yc, r = fit_circle_to_data(position_vector, verbose=True)
+
+        # Shady assert : do not know when it works or fails as
+        # the data is randomly sampled
+        assert r > 1

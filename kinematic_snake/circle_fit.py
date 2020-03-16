@@ -7,6 +7,7 @@ For more complicated shapes, see https://arxiv.org/pdf/cs/0301001.pdf
 
 import numpy as np
 from scipy.optimize import least_squares
+from scipy.stats import linregress
 
 
 def fit_circle_to_data(in_data, verbose=False):
@@ -16,14 +17,24 @@ def fit_circle_to_data(in_data, verbose=False):
     -------
 
     """
-    xc, yc, r, opt = circle_fit_impl(in_data)
+    slope, intercept, r_value, p_value, std_err = linregress(in_data[0], in_data[1])
 
     if verbose:
-        print("Number of function evaluations : {}".format(opt.nfev))
-        print("Number of Jacobian evaluations : {}".format(opt.njev))
-        print("Stddev. residuals at optimal : {}".format(np.std(opt.fun)))
+        print("R-square of linear fit : {}".format(r_value ** 2))
+        print("std-error of linear fit : {}".format(std_err))
 
-    return xc, yc, r
+    if r_value ** 2 < 0.98 and std_err > 1e-3:
+        xc, yc, r, opt = circle_fit_impl(in_data)
+
+        if verbose:
+            print("Number of function evaluations : {}".format(opt.nfev))
+            print("Number of Jacobian evaluations : {}".format(opt.njev))
+            print("Stddev. residuals at optimal : {}".format(np.std(opt.fun)))
+
+        return xc, yc, r
+    else:
+        # It's almost a straight line, so return all infinitirys
+        return np.inf, np.inf, np.inf
 
 
 def circle_fit_impl(x):
