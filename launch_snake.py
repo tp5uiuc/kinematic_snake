@@ -5,6 +5,7 @@ from sympy import sin, cos, pi
 from scipy.integrate import solve_ivp, trapz
 from collections import OrderedDict
 from kinematic_snake.kinematic_snake import KinematicSnake, LiftingKinematicSnake
+from kinematic_snake.circle_fit import fit_circle_to_data
 from os import path, makedirs
 
 
@@ -276,12 +277,18 @@ def calculate_statistics(
     velocity_com = sol_his.y[3:5, ...]
     average_speed = np.linalg.norm(velocity_com, axis=0)
 
+    # Get x and y from the point that we are considering averages from
+    # to pass it onto the circle fitting algorithm
+    position_com_over_averaging_window = sol_his.y[:2, past_per_index:]
+    xc, yc, avg_r = fit_circle_to_data(position_com_over_averaging_window, verbose=False)
+
     return {
         "average_pose_angle": averager(pose_ang_his),
         "average_steer_angle": averager(steer_ang_his),
         "average_pose_rate": averager(pose_rate_his),
         "average_steer_rate": averager(steer_rate_his),
-        "average_speed" : averager(average_speed)
+        "average_speed" : averager(average_speed),
+        "average_radius" : avg_r
     }
 
 
@@ -402,7 +409,8 @@ def run_and_visualize(*args, **kwargs):
             avg_steer_angle,
             avg_pos_rate,
             avg_steer_rate,
-            avg_speed
+            avg_speed,
+            avg_radius
         ) = statistics.values()
 
         angle_ax.plot(
@@ -655,7 +663,7 @@ def main():
     𝜅 = ε cos (k 𝛑 (s + t))
     where ε = 7.0 and k = 2.0
     """
-    snake, sol_history = run_and_visualize(
+    snake, sol_history, time_period = run_and_visualize(
         froude=1,
         time_interval=[0.0, 10.0],
         snake_type=KinematicSnake,
@@ -673,7 +681,7 @@ def main():
     """
     epsilon = 5.0
     wave_number = 5.0
-    snake, sol_history = run_and_visualize(
+    snake, sol_history, time_period= run_and_visualize(
         froude=1,
         time_interval=[0.0, 10.0],
         snake_type=KinematicSnake,
@@ -697,7 +705,7 @@ def main():
     Here ε = 7.0 and k_1 = 2.0 are defaulted while lift_amp = 1.0, k_2 = k_1 and
     φ = 0.26 are set as defaults
     """
-    snake, sol_history = run_and_visualize(
+    snake, sol_history, time_period  = run_and_visualize(
         froude=1,
         time_interval=[0.0, 10.0],
         snake_type=LiftingKinematicSnake,
@@ -716,7 +724,7 @@ def main():
     lift_wave_number = 2.0
     phase = 0.3
 
-    snake, sol_history = run_and_visualize(
+    snake, sol_history, time_period = run_and_visualize(
         froude=1,
         time_interval=[0.0, 10.0],
         snake_type=LiftingKinematicSnake,
@@ -762,7 +770,7 @@ def main():
         else:
             return 1.0 + 0.0 * s
 
-    snake, sol_history = run_and_visualize(
+    snake, sol_history, time_period = run_and_visualize(
         froude=1,
         time_interval=[0.0, 10.0],
         snake_type=LiftingKinematicSnake,
@@ -829,6 +837,8 @@ def main():
             "phase": [0.25, 0.5, 0.75],
         }
     )
+
+    ps = run_phase_space(snake_type=LiftingKinematicSnake, **kwargs)
 
     """
     5. If you want to load up a saved-snake from file (after running a
