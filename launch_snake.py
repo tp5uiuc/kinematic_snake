@@ -280,7 +280,7 @@ def calculate_statistics(
     # Get x and y from the point that we are considering averages from
     # to pass it onto the circle fitting algorithm
     position_com_over_averaging_window = sol_his.y[:2, past_per_index:]
-    xc, yc, avg_r = fit_circle_to_data(position_com_over_averaging_window, verbose=False)
+    xc, yc, rc = fit_circle_to_data(position_com_over_averaging_window, verbose=False)
 
     return {
         "average_pose_angle": averager(pose_ang_his),
@@ -288,7 +288,9 @@ def calculate_statistics(
         "average_pose_rate": averager(pose_rate_his),
         "average_steer_rate": averager(steer_rate_his),
         "average_speed" : averager(average_speed),
-        "average_radius" : avg_r
+        "fit_circle_x_center" : xc,
+        "fit_circle_y_center" : yc,
+        "fit_circle_radius" : rc
     }
 
 
@@ -410,6 +412,8 @@ def run_and_visualize(*args, **kwargs):
             avg_pos_rate,
             avg_steer_rate,
             avg_speed,
+            xc,
+            yc,
             avg_radius
         ) = statistics.values()
 
