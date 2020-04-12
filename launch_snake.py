@@ -2,7 +2,7 @@ import numpy as np
 import pickle
 from functools import partial
 from sympy import sin, cos, pi
-from scipy.integrate import solve_ivp, trapz
+from scipy.integrate import solve_ivp, trapz, simps
 from collections import OrderedDict
 from kinematic_snake.kinematic_snake import KinematicSnake, LiftingKinematicSnake
 from kinematic_snake.circle_fit import fit_circle_to_data
@@ -202,8 +202,86 @@ class SnakeWriter(SnakeIO):
             pickle.dump(sol, file_handler)
 
 
-def calculate_period_idx(fin_time, t_period, sol_his):
-    candidate_n_past_periods = 8
+def calculate_average_force_per_cycle(
+    sim_snake, sol_his, period_start_idx, period_stop_idx, force_history_in_cycle=None
+):
+    n_steps = period_stop_idx - period_start_idx
+
+    if force_history_in_cycle is None:
+        force_history_in_cycle = np.zeros((2, n_steps))
+
+    start_end = slice(period_start_idx, period_stop_idx)
+
+    for step, (time, solution) in enumerate(
+        zip(sol_his.t[start_end], sol_his.y[:, start_end].T)
+    ):
+        sim_snake.state = solution.reshape(-1, 1)
+        sim_snake._construct(time)
+
+        # Put the spatial average wihin force_history first
+        force_history_in_cycle[:, step] = trapz(
+            sim_snake.external_force_distribution(time), sim_snake.centerline, axis=-1
+        )
+
+        # force_history_in_cycle[:, step] = trapz(
+        #     np.array([[0.0], [1.0]]) + 0.0 * snake.external_force_distribution(time), snake.centerline, axis=-1
+        # )
+
+        # force_history_in_cycle[:, step] = np.cos(2.0 * np.pi * time)
+
+    time_elapsed = sol_his.t[start_end]
+    avg_force = simps(force_history_in_cycle, time_elapsed, axis=-1)
+    # Should equal the period
+    time_elapsed = time_elapsed[-1] - time_elapsed[0]
+
+    return avg_force / time_elapsed
+
+
+def calculate_period_start_stop_idx(
+    sol_his_time, fin_time, t_period, candidate_n_past_periods
+):
+    # Give a transitent of at leat 0.4*final_time
+    n_past_periods = (
+        candidate_n_past_periods
+        if ((fin_time - candidate_n_past_periods * t_period) > 0.4 * fin_time)
+        else 3
+    )
+    for i_period in range(n_past_periods):
+        start_time = fin_time - (n_past_periods - i_period) * t_period
+        # end_time = (fin_time - (n_past_periods - i_period - 1) * t_period)
+        end_time = start_time + t_period
+        start_period_idx = np.argmin(np.abs(sol_his_time - start_time))
+        end_period_idx = np.argmin(np.abs(sol_his_time - end_time))
+        # Note that +1 here. This is to accomodate slicing till the next period point
+        # and not one before
+        yield start_period_idx, end_period_idx + 1
+
+
+def calculate_statistics_over_n_cycles(
+    sim_snake, sol_his, fin_time, time_period, candidate_n_past_periods
+):
+    """
+
+    Returns
+    -------
+
+    """
+    cumulative_average_force_magnitude_per_cycle = 0.0
+    n_iters = 0
+    for start_idx, stop_idx in calculate_period_start_stop_idx(
+        sol_his.t, fin_time, time_period, int(candidate_n_past_periods)
+    ):
+        cumulative_average_force_magnitude_per_cycle += np.linalg.norm(
+            calculate_average_force_per_cycle(sim_snake, sol_his, start_idx, stop_idx)
+        )
+        n_iters += 1
+
+    return {
+        "avg_force_magnitude": cumulative_average_force_magnitude_per_cycle / n_iters
+    }
+
+
+def calculate_period_idx(fin_time, t_period, sol_his_t, candidate_n_past_periods=8):
     # Give a transitent of at leat 0.4*final_time
     n_past_periods = (
         candidate_n_past_periods
@@ -211,12 +289,12 @@ def calculate_period_idx(fin_time, t_period, sol_his):
         else 3
     )
     past_period_idx = np.argmin(
-        np.abs(sol_his.t - (fin_time - n_past_periods * t_period))
+        np.abs(sol_his_t - (fin_time - n_past_periods * t_period))
     )
     return past_period_idx, n_past_periods * t_period
 
 
-def calculate_statistics(
+def calculate_cumulative_statistics(
     sim_snake,
     sol_his,
     past_per_index,
@@ -226,8 +304,8 @@ def calculate_statistics(
     pose_rate_his=None,
     steer_rate_his=None,
 ):
-    """ Calculate average pose angle, average pose_angle_rate
-    and average turning_rate statistics
+    """ Calculates average pose angle, average pose_angle_rate
+    and average turning_rate statistics, cumulated for last many cycles
 
     Returns
     -------
@@ -267,6 +345,7 @@ def calculate_statistics(
     def averager(x):
         # calculate average statistics
         # assert(np.allclose(past_time, sol_his.t[-1] - sol_his.t[past_per_index]))
+        # Try and replace with simps to see if there's any change in the results
         avg_val = (
             trapz(x[..., past_per_index:], sol_his.t[past_per_index:], axis=-1,)
             / past_time
@@ -287,11 +366,39 @@ def calculate_statistics(
         "average_steer_angle": averager(steer_ang_his),
         "average_pose_rate": averager(pose_rate_his),
         "average_steer_rate": averager(steer_rate_his),
-        "average_speed" : averager(average_speed),
-        "fit_circle_x_center" : xc,
-        "fit_circle_y_center" : yc,
-        "fit_circle_radius" : rc
+        "average_speed": averager(average_speed),
+        "fit_circle_x_center": xc,
+        "fit_circle_y_center": yc,
+        "fit_circle_radius": rc,
     }
+
+
+def calculate_statistics(
+    sim_snake, sol_his, final_time, time_period, candidate_n_past_periods=8, **kwargs
+):
+    # First calculate per period statistics over candidate_n_cycles
+    averaged_force_stats = calculate_statistics_over_n_cycles(
+        sim_snake, sol_his, final_time, time_period, candidate_n_past_periods
+    )
+
+    past_period_idx, time_elapsed_in_past_periods = calculate_period_idx(
+        final_time, time_period, sol_his.t
+    )
+
+    # The compute cumulative statistics
+    averaged_cumulative_stats = calculate_cumulative_statistics(
+        sim_snake,
+        sol_his,
+        past_period_idx,
+        time_elapsed_in_past_periods,
+        kwargs.get("pose_ang_his", None),
+        kwargs.get("steer_ang_his", None),
+        kwargs.get("pose_rate_his", None),
+        kwargs.get("steer_rate_his", None),
+    )
+
+    averaged_cumulative_stats.update(averaged_force_stats)
+    return averaged_cumulative_stats
 
 
 def run_and_visualize(*args, **kwargs):
@@ -391,19 +498,15 @@ def run_and_visualize(*args, **kwargs):
         # calculate snake motion axes based on n_past_periods time-periods
         final_time = kwargs["time_interval"][1]
 
-        past_period_idx, time_elapsed_in_past_periods = calculate_period_idx(
-            final_time, time_period, sol_history
-        )
-
         statistics = calculate_statistics(
             snake,
             sol_history,
-            past_period_idx,
-            time_elapsed_in_past_periods,
-            pose_angle_history,
-            steering_angle_history,
-            pose_rate_history,
-            steering_rate_history,
+            final_time,
+            time_period,
+            pose_ang_his=pose_angle_history,
+            steer_ang_his=steering_angle_history,
+            pose_rate_his=pose_rate_history,
+            steer_rate_his=steering_rate_history,
         )
 
         (
@@ -414,7 +517,8 @@ def run_and_visualize(*args, **kwargs):
             avg_speed,
             xc,
             yc,
-            avg_radius
+            avg_radius,
+            avg_force_mag,
         ) = statistics.values()
 
         angle_ax.plot(
@@ -489,6 +593,9 @@ def run_and_visualize(*args, **kwargs):
         velocity_ax = velocity_fig.add_subplot(111)
 
         # as a bonus, plot it on the physical axes
+        past_period_idx, _ = calculate_period_idx(
+            final_time, time_period, sol_history.t
+        )
         phys_space_ax.plot(
             [sol_history.y[0, past_period_idx], sol_history.y[0, -1]],
             [sol_history.y[1, past_period_idx], sol_history.y[1, -1]],
@@ -563,7 +670,7 @@ def run_and_visualize(*args, **kwargs):
             lw=0.5,
             colors="k",
             linestyles="dashed",
-            label='average speed (mag vel)'
+            label="average speed (mag vel)",
         )
         velocity_ax.legend()
 
@@ -637,13 +744,10 @@ def fwd_to_run_snake(kwargs, id):
 
     final_time = kwargs["time_interval"][1]
 
-    past_period_idx, time_elapsed_in_past_periods = calculate_period_idx(
-        final_time, time_period, sol_history
+    return calculate_statistics(
+        snake, sol_history, final_time, time_period, candidate_n_past_periods=8
     )
 
-    return calculate_statistics(
-        snake, sol_history, past_period_idx, time_elapsed_in_past_periods
-    )
 
 
 def main():
@@ -685,7 +789,7 @@ def main():
     """
     epsilon = 5.0
     wave_number = 5.0
-    snake, sol_history, time_period= run_and_visualize(
+    snake, sol_history, time_period = run_and_visualize(
         froude=1,
         time_interval=[0.0, 10.0],
         snake_type=KinematicSnake,
@@ -709,7 +813,7 @@ def main():
     Here ε = 7.0 and k_1 = 2.0 are defaulted while lift_amp = 1.0, k_2 = k_1 and
     φ = 0.26 are set as defaults
     """
-    snake, sol_history, time_period  = run_and_visualize(
+    snake, sol_history, time_period = run_and_visualize(
         froude=1,
         time_interval=[0.0, 10.0],
         snake_type=LiftingKinematicSnake,
