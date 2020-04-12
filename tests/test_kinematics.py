@@ -186,3 +186,17 @@ class TestKinematicSnake:
         expected_torque = 0.0 * internal_torque
 
         assert_allclose(internal_torque, expected_torque, atol=1e-6)
+
+
+def generate_unevenly_spaced_time_series(start=0.0, stop=2.0 * np.pi, size=(35,)):
+    assert start < stop
+    local_start = start
+    local_stop = 0.5 * (start + stop)
+    t = np.random.uniform(low=local_start, high=local_stop, size=size)
+
+    def mirror(x):
+        return 2.0 * local_stop - x
+
+    t = np.hstack((np.array(start), t, mirror(t[::-1]), np.array(stop)))
+    t = np.sort(t)
+    return t
