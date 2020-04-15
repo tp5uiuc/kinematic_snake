@@ -347,7 +347,7 @@ def calculate_cumulative_statistics(
         # assert(np.allclose(past_time, sol_his.t[-1] - sol_his.t[past_per_index]))
         # Try and replace with simps to see if there's any change in the results
         avg_val = (
-            trapz(x[..., past_per_index:], sol_his.t[past_per_index:], axis=-1,)
+            simps(x[..., past_per_index:], sol_his.t[past_per_index:], axis=-1,)
             / past_time
         )
         return avg_val
@@ -627,7 +627,7 @@ def run_and_visualize(*args, **kwargs):
 
             # calculate average statistics
             avg_projected_velocity = (
-                trapz(
+                simps(
                     projected_velocity[..., past_period_idx:],
                     sol_history.t[past_period_idx:],
                     axis=-1,
