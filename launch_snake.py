@@ -231,10 +231,14 @@ def calculate_average_force_per_cycle(
 
     time_elapsed = sol_his.t[start_end]
     avg_force = simps(force_history_in_cycle, time_elapsed, axis=-1)
+    # Take norm of force acting at each time-step and then average it out
+    avg_norm_force = simps(
+        np.linalg.norm(force_history_in_cycle, axis=0), time_elapsed, axis=-1
+    )
     # Should equal the period
     time_elapsed = time_elapsed[-1] - time_elapsed[0]
 
-    return avg_force / time_elapsed
+    return avg_force / time_elapsed, avg_norm_force / time_elapsed
 
 
 def calculate_period_start_stop_idx(
@@ -266,18 +270,24 @@ def calculate_statistics_over_n_cycles(
     -------
 
     """
-    cumulative_average_force_magnitude_per_cycle = 0.0
+    # ||\int f(t) dt|| for t from n * T to (n+1) * T
+    cumulative_magnitude_of_average_force = 0.0
+    # \int ||f(t)|| dt for t from n * T to (n+1) * T
+    cumulative_average_force_magnitude = 0.0
     n_iters = 0
     for start_idx, stop_idx in calculate_period_start_stop_idx(
         sol_his.t, fin_time, time_period, int(candidate_n_past_periods)
     ):
-        cumulative_average_force_magnitude_per_cycle += np.linalg.norm(
-            calculate_average_force_per_cycle(sim_snake, sol_his, start_idx, stop_idx)
+        avg_force, avg_force_norm = calculate_average_force_per_cycle(
+            sim_snake, sol_his, start_idx, stop_idx
         )
+        cumulative_magnitude_of_average_force += np.linalg.norm(avg_force)
+        cumulative_average_force_magnitude += avg_force_norm
         n_iters += 1
 
     return {
-        "avg_force_magnitude": cumulative_average_force_magnitude_per_cycle / n_iters
+        "magnitude_of_average_force": cumulative_magnitude_of_average_force / n_iters,
+        "average_of_force_magnitude": cumulative_average_force_magnitude / n_iters,
     }
 
 
@@ -747,7 +757,6 @@ def fwd_to_run_snake(kwargs, id):
     return calculate_statistics(
         snake, sol_history, final_time, time_period, candidate_n_past_periods=8
     )
-
 
 
 def main():
