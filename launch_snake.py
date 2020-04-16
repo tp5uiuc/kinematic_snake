@@ -4,7 +4,11 @@ from functools import partial
 from sympy import sin, cos, pi
 from scipy.integrate import solve_ivp, trapz, simps
 from collections import OrderedDict
-from kinematic_snake.kinematic_snake import KinematicSnake, LiftingKinematicSnake
+from kinematic_snake.kinematic_snake import (
+    KinematicSnake,
+    LiftingKinematicSnake,
+    project,
+)
 from kinematic_snake.circle_fit import fit_circle_to_data
 from os import path, makedirs
 
@@ -203,12 +207,22 @@ class SnakeWriter(SnakeIO):
 
 
 def calculate_average_force_per_cycle(
-    sim_snake, sol_his, period_start_idx, period_stop_idx, force_history_in_cycle=None
+    sim_snake,
+    sol_his,
+    period_start_idx,
+    period_stop_idx,
+    force_history_in_cycle=None,
+    mag_normal_projection_of_force_history_in_cycle=None,
 ):
     n_steps = period_stop_idx - period_start_idx
 
     if force_history_in_cycle is None:
         force_history_in_cycle = np.zeros((2, n_steps))
+
+    if mag_normal_projection_of_force_history_in_cycle is None:
+        mag_normal_projection_of_force_history_in_cycle = np.zeros((n_steps))
+
+    instantaneous_normal = np.zeros((2, n_steps))
 
     start_end = slice(period_start_idx, period_stop_idx)
 
@@ -217,28 +231,48 @@ def calculate_average_force_per_cycle(
     ):
         sim_snake.state = solution.reshape(-1, 1)
         sim_snake._construct(time)
+        # tangent is along (v_x, v_y)
+        # normal is along (-v_y, v_x)
+        # shape is (2,1) to support project
+        instantaneous_normal[:, step] = np.array([-solution[4], solution[3]])
 
         # Put the spatial average wihin force_history first
         force_history_in_cycle[:, step] = trapz(
             sim_snake.external_force_distribution(time), sim_snake.centerline, axis=-1
         )
+        # Can be done all in one go if efficieny needed
+        # mag_normal_projection_of_force_history_in_cycle[step], _ = project(
+        #     force_history_in_cycle[:, step], instantaneous_normal
+        # )
 
         # force_history_in_cycle[:, step] = trapz(
         #     np.array([[0.0], [1.0]]) + 0.0 * snake.external_force_distribution(time), snake.centerline, axis=-1
         # )
 
         # force_history_in_cycle[:, step] = np.cos(2.0 * np.pi * time)
+    # project does (ij,ij->i) so that we put timeaxis first here
+    mag_normal_projection_of_force_history_in_cycle[:], _ = np.abs(
+        project(force_history_in_cycle, instantaneous_normal)
+    )
 
     time_elapsed = sol_his.t[start_end]
     avg_force = simps(force_history_in_cycle, time_elapsed, axis=-1)
-    # Take norm of force acting at each time-step and then average it out
-    avg_norm_force = simps(
+    # Take mag of force acting at each time-step and then average it out
+    avg_mag_force = simps(
         np.linalg.norm(force_history_in_cycle, axis=0), time_elapsed, axis=-1
+    )
+    # Norm of force in the normal direction
+    avg_mag_force_in_normal_direction = simps(
+        mag_normal_projection_of_force_history_in_cycle, time_elapsed, axis=-1
     )
     # Should equal the period
     time_elapsed = time_elapsed[-1] - time_elapsed[0]
 
-    return avg_force / time_elapsed, avg_norm_force / time_elapsed
+    return (
+        avg_force / time_elapsed,
+        avg_mag_force / time_elapsed,
+        avg_mag_force_in_normal_direction / time_elapsed,
+    )
 
 
 def calculate_period_start_stop_idx(
@@ -274,20 +308,29 @@ def calculate_statistics_over_n_cycles(
     cumulative_magnitude_of_average_force = 0.0
     # \int ||f(t)|| dt for t from n * T to (n+1) * T
     cumulative_average_force_magnitude = 0.0
+    # \int ||f(t) . \hat{n}|| dt for t from n * T to (n+1) * T
+    cumulative_average_force_magnitude_in_normal_direction = 0.0
     n_iters = 0
     for start_idx, stop_idx in calculate_period_start_stop_idx(
         sol_his.t, fin_time, time_period, int(candidate_n_past_periods)
     ):
-        avg_force, avg_force_norm = calculate_average_force_per_cycle(
-            sim_snake, sol_his, start_idx, stop_idx
-        )
+        (
+            avg_force,
+            avg_force_norm,
+            avg_force_norm_in_normal_direction,
+        ) = calculate_average_force_per_cycle(sim_snake, sol_his, start_idx, stop_idx)
         cumulative_magnitude_of_average_force += np.linalg.norm(avg_force)
         cumulative_average_force_magnitude += avg_force_norm
+        cumulative_average_force_magnitude_in_normal_direction += (
+            avg_force_norm_in_normal_direction
+        )
         n_iters += 1
 
     return {
         "magnitude_of_average_force": cumulative_magnitude_of_average_force / n_iters,
         "average_of_force_magnitude": cumulative_average_force_magnitude / n_iters,
+        "average_of_normal_force_magnitude": cumulative_average_force_magnitude_in_normal_direction
+        / n_iters,
     }
 
 
@@ -528,7 +571,9 @@ def run_and_visualize(*args, **kwargs):
             xc,
             yc,
             avg_radius,
+            mag_avg_force,
             avg_force_mag,
+            avg_force_mag_in_normal_dir,
         ) = statistics.values()
 
         angle_ax.plot(
