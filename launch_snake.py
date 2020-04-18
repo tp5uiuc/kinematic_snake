@@ -10,6 +10,8 @@ from kinematic_snake.kinematic_snake import (
     project,
 )
 from kinematic_snake.circle_fit import fit_circle_to_data
+from kinematic_snake.compute_circle import findCircle #compute circle from three points
+
 from os import path, makedirs
 
 
@@ -346,12 +348,12 @@ def calculate_period_idx(fin_time, t_period, sol_his_t, candidate_n_past_periods
     )
     return past_period_idx, n_past_periods * t_period
 
-
 def calculate_cumulative_statistics(
     sim_snake,
     sol_his,
     past_per_index,
     past_time,
+    final_time,
     pose_ang_his=None,
     steer_ang_his=None,
     pose_rate_his=None,
@@ -414,6 +416,66 @@ def calculate_cumulative_statistics(
     position_com_over_averaging_window = sol_his.y[:2, past_per_index:]
     xc, yc, rc = fit_circle_to_data(position_com_over_averaging_window, verbose=False)
 
+
+    # Noel's added code to compute the effective speed based on the radius of the circle 
+    # Averaging helps smooth things out, likely due to the adaptive time-stepper not alwys
+    # giving consistent number of steps, therefor throwing the averaging off. A fix for this
+    # would be to having a constant time-step, but this has its own performance issues. 
+    # 
+    # Adding all the code here to make it easy. Could be better integrated, such as using 
+    # calculate_period_start_stop_idx instead of the function below. 
+    def calculate_past_periods_idx(fin_time, t_period, sol_his_t, periods_to_average):
+        # get the ids of the last 10 periods for computing average values
+        past_period_idx_all = []
+        for n_past_periods in range(periods_to_average+1):
+            past_period_idx_all.append(np.argmin(np.abs(sol_his_t - (fin_time - n_past_periods * t_period))) )
+        return past_period_idx_all
+
+    # these values should be better defined. Hard coded for no2.
+    periods_to_average = 10
+    time_period = 1.0
+    period_ids = calculate_past_periods_idx(final_time, time_period, sol_his.t, periods_to_average)
+
+    avg_com_list = []
+    # compute the locations of the average COM for each period. Skip the first entry
+    # because it is the last index in the list. Could probably be better integrated with trapz of simps
+    for i in range(1,len(period_ids)):
+        period_com_all = sol_his.y[:2, period_ids[i]:period_ids[i-1]]
+        avg_com_list.append(np.average(period_com_all,1))
+    radius_collection = []
+    speed_effective_collection = []
+    steering_rate_collection = []
+    #skip the first and last entries because you need three entries to make the calculation
+    for i in range(1,len(avg_com_list)-1):
+        radius = findCircle(avg_com_list[i-1], avg_com_list[i], avg_com_list[i+1])
+        radius_collection.append(radius)
+        # compute distance traveled over two periods
+        distance = np.linalg.norm(avg_com_list[i-1] - avg_com_list[i+1]) 
+        # compute the steering rate along the trajectory of circle defined by the radius. 
+        # since distance is over two periods, the effective rate (rads/ period) is half
+        steering_rate = 2. * np.arcsin(distance/(2.*radius)) * 1./2. 
+        steering_rate_collection.append(steering_rate)
+        # compute effective speed as steering rate * radius
+        speed_effective_collection.append(radius * steering_rate)
+    
+
+    # A few possible extensions:
+    # For radii over some large value (say 1e3 or 1e4) we might want to just compute the speed
+    # as if it were a straight line, instead of a curve. This would avoid possible floating
+    # point errors for very large radii. 
+
+    # Computing the pose angle based on this formulation isn't totally clear to me. We can get 
+    # a direction vector for the effective speed, so then compute the average of the snake 
+    # position over period and take the angle between the two?
+
+    # One more sanity check we can do is compare the effective force vector and the effective speed 
+    # vector. I think they should be orthogonal. 
+
+    # get the average values. 
+    speed_effective = np.mean(speed_effective_collection)
+    steering_rate_avg = np.mean(steering_rate_collection)
+    radius_avg = np.mean(radius_collection)
+
     return {
         "average_pose_angle": averager(pose_ang_his),
         "average_steer_angle": averager(steer_ang_his),
@@ -423,6 +485,9 @@ def calculate_cumulative_statistics(
         "fit_circle_x_center": xc,
         "fit_circle_y_center": yc,
         "fit_circle_radius": rc,
+        "average_circle_radius_new": radius_avg,
+        "average_steering_rate_new": steering_rate_avg,
+        "effective_speed": speed_effective,
     }
 
 
@@ -444,6 +509,7 @@ def calculate_statistics(
         sol_his,
         past_period_idx,
         time_elapsed_in_past_periods,
+        final_time,
         kwargs.get("pose_ang_his", None),
         kwargs.get("steer_ang_his", None),
         kwargs.get("pose_rate_his", None),
@@ -529,6 +595,34 @@ def run_and_visualize(*args, **kwargs):
                 lw=2,
             )
 
+        # plot COM for each timestep
+        phys_space_ax.plot(
+                sol_history.y[0, :],
+                sol_history.y[1, :],
+                'k.',
+                markersize = 1,
+                )
+
+        # plot average COM for each period
+        final_time = kwargs["time_interval"][1]
+
+        # get locations for each complete period
+        period_ids = []
+        for n_past_periods in range(int(final_time)):
+            period_ids.append(np.argmin(np.abs(sol_history.t - (final_time - n_past_periods * time_period))) )
+        period_ids.append(0) # add starting point of series to list
+
+        for i in range(1,len(period_ids)):
+            period_com_all = sol_history.y[:2, period_ids[i]:period_ids[i-1]]
+            avg_com = np.average(period_com_all,1)
+            phys_space_ax.plot(
+                avg_com[0],
+                avg_com[1],
+                'ro',
+                markersize = 3,
+                # alpha=10**((len(period_ids) - i) / (len(period_ids))-1 ),
+            )
+
         quiver_skip = int(snake.centerline.size / 30)
         phys_space_ax.quiver(
             snake.x_s[0, ::quiver_skip],
@@ -571,6 +665,9 @@ def run_and_visualize(*args, **kwargs):
             xc,
             yc,
             avg_radius,
+            avg_radius_new,
+            avg_steer_rate_new,
+            effective_speed,
             mag_avg_force,
             avg_force_mag,
             avg_force_mag_in_normal_dir,
@@ -825,14 +922,14 @@ def main():
     𝜅 = ε cos (k 𝛑 (s + t))
     where ε = 7.0 and k = 2.0
     """
-    snake, sol_history, time_period = run_and_visualize(
-        froude=1,
-        time_interval=[0.0, 10.0],
-        snake_type=KinematicSnake,
-        mu_f=1.0,
-        mu_b=1.5,
-        mu_lat=2.0,
-    )
+    # snake, sol_history, time_period = run_and_visualize(
+    #     froude=1,
+    #     time_interval=[0.0, 10.0],
+    #     snake_type=KinematicSnake,
+    #     mu_f=1.0,
+    #     mu_b=1.5,
+    #     mu_lat=2.0,
+    # )
 
     """
     1.2 For running a single case with non-default parameters for
@@ -841,18 +938,18 @@ def main():
     please do the following. Note that the order of parameters beyond
     the keyword `snake_type` does not matter.
     """
-    epsilon = 5.0
-    wave_number = 5.0
-    snake, sol_history, time_period = run_and_visualize(
-        froude=1,
-        time_interval=[0.0, 10.0],
-        snake_type=KinematicSnake,
-        mu_f=1.0,
-        mu_b=1.5,
-        mu_lat=2.0,
-        epsilon=epsilon,
-        wave_number=wave_number,
-    )
+    # epsilon = 5.0
+    # wave_number = 5.0
+    # snake, sol_history, time_period = run_and_visualize(
+    #     froude=1,
+    #     time_interval=[0.0, 10.0],
+    #     snake_type=KinematicSnake,
+    #     mu_f=1.0,
+    #     mu_b=1.5,
+    #     mu_lat=2.0,
+    #     epsilon=epsilon,
+    #     wave_number=wave_number,
+    # )
 
     """
     2.1 If you want a Lifting snake with default parameters (for both
@@ -867,38 +964,38 @@ def main():
     Here ε = 7.0 and k_1 = 2.0 are defaulted while lift_amp = 1.0, k_2 = k_1 and
     φ = 0.26 are set as defaults
     """
-    snake, sol_history, time_period = run_and_visualize(
-        froude=1,
-        time_interval=[0.0, 10.0],
-        snake_type=LiftingKinematicSnake,
-        mu_f=1.0,
-        mu_b=1.5,
-        mu_lat=2.0,
-    )
+    # snake, sol_history, time_period = run_and_visualize(
+    #     froude=1,
+    #     time_interval=[0.0, 10.0],
+    #     snake_type=LiftingKinematicSnake,
+    #     mu_f=1.0,
+    #     mu_b=1.5,
+    #     mu_lat=2.0,
+    # )
 
     """
     2.2 If you want to specify non-default parameters for either the curvature
     or lifting wave, please do. Once again, order of keywords do not matter
     """
-    epsilon = 5.0
-    wave_number = 5.0
-    lift_amp = 0.4
-    lift_wave_number = 2.0
-    phase = 0.3
+    # epsilon = 7.0
+    # wave_number = 2.0
+    # lift_amp = 1.0
+    # lift_wave_number = 2.0
+    # phase = 0.3
 
-    snake, sol_history, time_period = run_and_visualize(
-        froude=1,
-        time_interval=[0.0, 10.0],
-        snake_type=LiftingKinematicSnake,
-        mu_f=1.0,
-        mu_b=1.5,
-        mu_lat=2.0,
-        epsilon=epsilon,
-        wave_number=wave_number,
-        lift_amp=lift_amp,
-        lift_wave_number=lift_wave_number,
-        phase=phase,
-    )
+    # snake, sol_history, time_period = run_and_visualize(
+    #     froude=1,
+    #     time_interval=[0.0, 20.0],
+    #     snake_type=LiftingKinematicSnake,
+    #     mu_f=1.0,
+    #     mu_b=1.5,
+    #     mu_lat=2.0,
+    #     epsilon=epsilon,
+    #     wave_number=wave_number,
+    #     lift_amp=lift_amp,
+    #     lift_wave_number=lift_wave_number,
+    #     phase=phase,
+    # )
 
     """
     3. If you want to rather provide your own activation functions, you can 
@@ -914,34 +1011,34 @@ def main():
     In case you are running a non-lifting snake, then just set the custom
     curvature activation, the lifting activation will automatically be ignored.
     """
-    epsilon = 7.0
-    wave_number = 2.0
-    lift_amp = 0.0
-    phase = 0.26
+    # epsilon = 7.0
+    # wave_number = 2.0
+    # lift_amp = 0.0
+    # phase = 0.26
 
-    def my_custom_activation(s, time_v):
-        return epsilon * cos(wave_number * pi * (s + time_v))
+    # def my_custom_activation(s, time_v):
+    #     return epsilon * cos(wave_number * pi * (s + time_v))
 
-    def my_custom_lifting_activation(s, time_v):
-        if time_v > 2.0:
-            liftwave = (
-                lift_amp * np.cos(wave_number * np.pi * (s + phase + time_v)) + 1.0
-            )
-            np.maximum(0, liftwave, out=liftwave)
-            return liftwave / trapz(liftwave, s)
-        else:
-            return 1.0 + 0.0 * s
+    # def my_custom_lifting_activation(s, time_v):
+    #     if time_v > 2.0:
+    #         liftwave = (
+    #             lift_amp * np.cos(wave_number * np.pi * (s + phase + time_v)) + 1.0
+    #         )
+    #         np.maximum(0, liftwave, out=liftwave)
+    #         return liftwave / trapz(liftwave, s)
+    #     else:
+    #         return 1.0 + 0.0 * s
 
-    snake, sol_history, time_period = run_and_visualize(
-        froude=1,
-        time_interval=[0.0, 10.0],
-        snake_type=LiftingKinematicSnake,
-        mu_f=1.0,
-        mu_b=1.5,
-        mu_lat=2.0,
-        activation=my_custom_activation,
-        lifting_activation=my_custom_lifting_activation,
-    )
+    # snake, sol_history, time_period = run_and_visualize(
+    #     froude=1,
+    #     time_interval=[0.0, 10.0],
+    #     snake_type=LiftingKinematicSnake,
+    #     mu_f=1.0,
+    #     mu_b=1.5,
+    #     mu_lat=2.0,
+    #     activation=my_custom_activation,
+    #     lifting_activation=my_custom_lifting_activation,
+    # )
 
     """
     
@@ -980,23 +1077,23 @@ def main():
         }
     )
 
-    ps = run_phase_space(snake_type=KinematicSnake, **kwargs)
+    # ps = run_phase_space(snake_type=KinematicSnake, **kwargs)
 
     """
     4.2 Phase-space for a LiftingSnake
     """
     kwargs = OrderedDict(
         {
-            "froude": [1.0, 2.0, 3.0],
+            "froude": [0.01],
             "time_interval": [[0.0, 20.0]],
-            "mu_f": [1.0, 2.0],
-            "mu_b": [3.0, 4.0],
-            "mu_lat": [3.0, 4.0],
-            "epsilon": [2.0, 4.0, 7.0],
-            "wave_number": [4.0, 5.0, 6.0],
-            "lift_wave_number": [2.0, 3.0],
-            "lift_amp": [2.0, 3.0],
-            "phase": [0.25, 0.5, 0.75],
+            "mu_f": [1.0],
+            "mu_b": [1.5],
+            "mu_lat": [2.0],
+            "epsilon": [7.0],
+            "wave_number": [2.0],
+            "lift_wave_number": [2.0],
+            "lift_amp": [0.0, 0.5, 1.0],
+            "phase": [0.0, 0.125, 0.25],
         }
     )
 
@@ -1012,7 +1109,7 @@ def main():
     these two parameters, its possible to reconstruct all desired quantitites.
     Look at `run_and_visualize` for a more complete example
     """
-    snake, sol_history = SnakeReader.load_snake_from_disk(1)
+    # snake, sol_history = SnakeReader.load_snake_from_disk(1)
 
 
 if __name__ == "__main__":
