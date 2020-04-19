@@ -441,7 +441,8 @@ def calculate_cumulative_statistics(
     # because it is the last index in the list. Could probably be better integrated with trapz of simps
     for i in range(1,len(period_ids)):
         period_com_all = sol_his.y[:2, period_ids[i]:period_ids[i-1]]
-        avg_com_list.append(np.average(period_com_all,1))
+        avg_com = simps(period_com_all, sol_his.t[period_ids[i]:period_ids[i-1]])
+        avg_com_list.append(avg_com)    
     radius_collection = []
     speed_effective_collection = []
     steering_rate_collection = []
