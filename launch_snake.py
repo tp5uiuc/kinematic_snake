@@ -2,7 +2,7 @@ import numpy as np
 import pickle
 from functools import partial
 from sympy import sin, cos, pi
-from scipy.integrate import solve_ivp, trapz, simps
+from scipy.integrate import solve_ivp, trapz, simps, OdeSolution
 from collections import OrderedDict
 from kinematic_snake.kinematic_snake import (
     KinematicSnake,
@@ -151,7 +151,7 @@ class SnakeReader(SnakeIO):
         pickled_file_name = SnakeReader.pickled_file_name.format(id=id)
 
         with open(pickled_file_name, "rb") as pickled_file:
-            sol = pickle.load(pickled_file)
+            sol, time_period = pickle.load(pickled_file)
 
         ### Can use eval, but dangerous
         if snake_cls == KinematicSnake.__name__:
@@ -171,7 +171,7 @@ class SnakeReader(SnakeIO):
             **kwargs
         )
 
-        return snake, sol
+        return snake, sol, time_period
 
 
 class SnakeWriter(SnakeIO):
@@ -198,12 +198,12 @@ class SnakeWriter(SnakeIO):
                 csvwriter.writerow(temp)
 
     @staticmethod
-    def write_snake_to_disk(id: int, sol):
+    def write_snake_to_disk(id: int, sol: OdeSolution, time_period: float):
         with open(SnakeWriter.pickled_file_name.format(id=id), "wb") as file_handler:
             # # Doesn't work
             # pickle.dump([snake, sol], file_handler)
             # Works
-            pickle.dump(sol, file_handler)
+            pickle.dump((sol, time_period), file_handler)
 
 
 def calculate_average_force_per_cycle(
@@ -334,11 +334,14 @@ def calculate_statistics_over_n_cycles(
     }
 
 
-def calculate_period_idx(fin_time, t_period, sol_his_t, candidate_n_past_periods=8):
+def calculate_period_idx(
+    fin_time, t_period, sol_his_t, candidate_n_past_periods=8, override=False
+):
     # Give a transitent of at leat 0.4*final_time
     n_past_periods = (
         candidate_n_past_periods
         if ((fin_time - candidate_n_past_periods * t_period) > 0.4 * fin_time)
+        or override
         else 3
     )
     past_period_idx = np.argmin(
@@ -414,6 +417,11 @@ def calculate_cumulative_statistics(
     position_com_over_averaging_window = sol_his.y[:2, past_per_index:]
     xc, yc, rc = fit_circle_to_data(position_com_over_averaging_window, verbose=False)
 
+    # Do not trust this radius, use the following estimate
+    # Teja : In the "good" cases, it doesn't make any difference
+    computed_com = np.array([xc, yc])
+    integrated_distance = np.linalg.norm(sol_his.y[:2].reshape(2, -1) - computed_com.reshape(2, 1), 2, axis=0)
+
     return {
         "average_pose_angle": averager(pose_ang_his),
         "average_steer_angle": averager(steer_ang_his),
@@ -422,7 +430,8 @@ def calculate_cumulative_statistics(
         "average_speed": averager(average_speed),
         "fit_circle_x_center": xc,
         "fit_circle_y_center": yc,
-        "fit_circle_radius": rc,
+        "fit_circle_radius": averager(integrated_distance),
+        "least_squares_fit_circle_radius": rc,
     }
 
 
@@ -454,51 +463,201 @@ def calculate_statistics(
     return averaged_cumulative_stats
 
 
-def run_and_visualize(*args, **kwargs):
-    snake, sol_history, time_period = run_snake(*args, **kwargs)
+def animate_snake_with_interpolation(snake, sol_history, time_period, snake_id=None):
+    from matplotlib import pyplot as plt
+    from matplotlib.colors import to_rgb, LinearSegmentedColormap
+    from tqdm import tqdm
+    import matplotlib.animation as manimation
 
+    plt.rcParams.update({"font.size": 22})
+
+    FFMpegWriter = manimation.writers["ffmpeg"]
+    metadata = dict(title="Movie Test", artist="Matplotlib", comment="Movie support!")
+    fps = 50
+    writer = FFMpegWriter(fps=fps, metadata=metadata)
+    dpi = 200
+    plt.style.use("seaborn-whitegrid")
+    fig = plt.figure(figsize=(10, 8), frameon=True, dpi=dpi)
+    ax = fig.add_subplot(111)
+    ax.set_aspect("equal", adjustable="box")
+    # plt.axis("square")
+    time = 0.0
+    solution = sol_history.y.T[0]
+    snake.state = solution.reshape(-1, 1)
+    snake._construct(time)
+    (snake_centerline,) = ax.plot(
+        snake.x_s[0, ...], snake.x_s[1, ...], lw=2.5, solid_capstyle="round"
+    )
+    x_com = []
+    y_com = []
+    # colors = np.zeros((2, 4))
+    # colors[:, 3] = 1.0 # alpha channel
+    # Only one that works : https://stackoverflow.com/a/48156476
+    colors = [[0., 0., 0., 0.], [0., 0., 0., 0.5], [0., 0., 0., 1.0]]
+    cmap = LinearSegmentedColormap.from_list("", colors)
+    snake_com = ax.scatter(x_com, y_com, c=[],  s=16, cmap=cmap, vmin=0, vmax=1)
+    time_in_text = plt.text(
+        0.5,
+        0.9,
+        "T = 0.0",
+        fontsize=22,
+        horizontalalignment="center",
+        transform=ax.transAxes,
+    )
+    ax.set_aspect("equal", adjustable="box")
+    if snake_id is None:
+        video_name = "snake.mp4"
+    else:
+        video_name = "snake_{:05d}.mp4".format(snake_id)
+    ax.set_xlim([-1.0, 1.0])
+    ax.set_ylim([-1.0, 1.0])
+
+    # Should depend on the total size o f
+    n_steps_in_total = sol_history.t.shape[0]
+    video_skip = max(int( n_steps_in_total/ fps / 20.0), 1)
+    # print(n_steps_in_total, video_skip)
+    # return
+
+    total_time = sol_history.t[-1]
+    # 1 physical second is 2 simulation second
+    # fps is 50 => 2 simulation second has 50 frames
+    # 1 frame is then 2/50 of second
+    # spacing is 2/50
+    # dt = 2 / fps
+    # total_n_points = T / dt = fps * T / 2
+    total_n_points = int(0.5 * total_time * fps)
+    t_mesh = np.linspace(0.0, total_time, total_n_points + 1)
+    print("Number of simulation samples {0} vs number of interpolated samples {1}".format(n_steps_in_total, total_n_points))
+
+    # scatter plot recency parameter / exp weight
+    recency_weight = 0.25
+    # scat_colors = np.zeros((t_mesh.shape[0], 4))
+    # scat_colors[:, 3] = 1.0
+    # scat_intensity = np.zeros((t_mesh.shape[0], ))
+
+    # We now form cubic interpolants to all data at different points
+    from scipy.interpolate import interp1d
+    state_interpolant = interp1d(sol_history.t, sol_history.y)
+
+    interpolated_mesh = state_interpolant(t_mesh)
+
+    # if we want average COM, let's calculate that first
+    # T, 2T, 3T ... nT
+    periods = np.linspace(time_period, total_time, int(total_time/time_period))
+    period_indices = [np.argmin(np.abs(t_mesh - period)) for period in periods]
+    # Annoying +1 here to account for the fact that the full cycle is from [start,stop] (stop includeed)
+    # which doesn't work upon slicing
+    period_indices_start_stop_pair = [(x,y + 1) for x, y in zip(period_indices[:-1], period_indices[1:])]
+
+    def averager(x, start_idx, stop_idx):
+        # calculate average statistics
+        # assert(np.allclose(past_time, sol_his.t[-1] - sol_his.t[past_per_index]))
+        # Try and replace with simps to see if there's any change in the results
+        return (
+                simps(x[..., start_idx:stop_idx], t_mesh[start_idx: stop_idx], axis=-1,)
+                / time_period
+        )
+
+    # The first element contains average of first cycle and should be plotting after t = period
+    average_com = np.array([averager(interpolated_mesh[:2], start, stop) for (start, stop) in period_indices_start_stop_pair])
+    # The cisualization starts from this point onwards
+    start_cycle = 6
+    average_com_counter = start_cycle
+    average_snake_com = ax.scatter([], [], c='r', s=16)
+
+    with writer.saving(fig, video_name, dpi):
+        for t_ind, time in enumerate(tqdm(t_mesh)):
+            solution = interpolated_mesh[:, t_ind]
+            snake.state = solution.reshape(-1, 1)
+            snake._construct(time)
+            snake_centerline.set_xdata(snake.x_s[0, ...])
+            snake_centerline.set_ydata(snake.x_s[1, ...])
+            time_in_text.set_text("T = {:.2f}".format(time))
+            # Set x and y valyes
+            snake_com.set_offsets(interpolated_mesh[:2, :t_ind].T)
+            # past_time = t_mesh[:t_ind]
+            # scat_colors[:t_ind, 3] = np.exp(-recency_weight * (past_time - time))
+            # scat_intensity[:t_ind] *= recency_weight
+            # scat_intensity[t_ind - 1] = 1.0
+            # snake_com.set_array(scat_colors[:, 3])
+            past_time = t_mesh[:t_ind]
+            snake_com.set_array( np.exp(recency_weight * (past_time - time)))
+            if t_ind == period_indices[average_com_counter]:
+                average_snake_com.set_offsets(average_com[start_cycle:average_com_counter, :2])
+                average_com_counter += 1
+            writer.grab_frame()
+
+def animate_snake(snake, sol_history, time_period, snake_id=None):
+    from matplotlib import pyplot as plt
+    from matplotlib.colors import to_rgb, LinearSegmentedColormap
+    from tqdm import tqdm
+    import matplotlib.animation as manimation
+
+    plt.rcParams.update({"font.size": 22})
+
+    FFMpegWriter = manimation.writers["ffmpeg"]
+    metadata = dict(title="Movie Test", artist="Matplotlib", comment="Movie support!")
+    fps = 50
+    writer = FFMpegWriter(fps=fps, metadata=metadata)
+    dpi = 200
+    plt.style.use("seaborn-whitegrid")
+    fig = plt.figure(figsize=(10, 8), frameon=True, dpi=dpi)
+    ax = fig.add_subplot(111)
+    ax.set_aspect("equal", adjustable="box")
+    # plt.axis("square")
+    time = 0.0
+    solution = sol_history.y.T[0]
+    snake.state = solution.reshape(-1, 1)
+    snake._construct(time)
+    (snake_centerline,) = ax.plot(
+        snake.x_s[0, ...], snake.x_s[1, ...], lw=2.5, solid_capstyle="round"
+    )
+    x_com = []
+    y_com = []
+    # colors = np.zeros((2, 4))
+    # colors[:, 3] = 1.0 # alpha channel
+    # Only one that works : https://stackoverflow.com/a/48156476
+    snake_com = ax.scatter(x_com, y_com, c='k',  s=16)
+    time_in_text = plt.text(
+        0.5,
+        0.9,
+        "T = 0.0",
+        fontsize=22,
+        horizontalalignment="center",
+        transform=ax.transAxes,
+    )
+    ax.set_aspect("equal", adjustable="box")
+    if snake_id is None:
+        video_name = "snake_nointerp.mp4"
+    else:
+        video_name = "snake_nointerp_{:05d}.mp4".format(snake_id)
+    ax.set_xlim([-1.0, 1.0])
+    ax.set_ylim([-1.0, 1.0])
+
+    # Should depend on the total size o f
+    n_steps_in_total = sol_history.t.shape[0]
+    video_skip = 2
+
+    total_time = sol_history.t[-1]
+
+    with writer.saving(fig, video_name, dpi):
+        for time, solution in zip(
+            sol_history.t[1::video_skip], sol_history.y.T[1::video_skip]
+        ):
+            snake.state = solution.reshape(-1, 1)
+            snake._construct(time)
+            snake_centerline.set_xdata(snake.x_s[0, ...])
+            snake_centerline.set_ydata(snake.x_s[1, ...])
+            time_in_text.set_text("T = {:.2f}".format(time))
+            # Not efficient, but whatever
+            x_com.append(solution[0])
+            y_com.append(solution[1])
+            snake_com.set_offsets(np.c_[x_com, y_com])
+            writer.grab_frame()
+
+def visualize_snake(snake, sol_history, time_period, snake_id=None, **kwargs):
     from matplotlib import pyplot as plt
     from matplotlib.colors import to_rgb
-
-    # Ugly hack from now
-    # FIXME : Abstract this away from the user
-    PLOT_VIDEO = False
-    if PLOT_VIDEO:
-        import matplotlib.animation as manimation
-
-        plt.rcParams.update({"font.size": 22})
-
-        FFMpegWriter = manimation.writers["ffmpeg"]
-        metadata = dict(
-            title="Movie Test", artist="Matplotlib", comment="Movie support!"
-        )
-        fps = 60
-        writer = FFMpegWriter(fps=fps, metadata=metadata)
-        dpi = 200
-        fig = plt.figure(figsize=(10, 8), frameon=True, dpi=dpi)
-        ax = fig.add_subplot(111)
-        ax.set_aspect("equal", adjustable="box")
-        # plt.axis("square")
-        time = 0.0
-        solution = sol_history.y.T[0]
-        snake.state = solution.reshape(-1, 1)
-        snake._construct(time)
-        (snake_centerline,) = ax.plot(snake.x_s[0, ...], snake.x_s[1, ...], lw=2.0)
-        ax.set_aspect("equal", adjustable="box")
-        video_name = "snake.mp4"
-        ax.set_xlim([-1.0, 1.0])
-        ax.set_ylim([-1.0, 1.0])
-        video_skip = 8
-        with writer.saving(fig, video_name, dpi):
-            with plt.style.context("fivethirtyeight"):
-                for time, solution in zip(
-                    sol_history.t[1::video_skip], sol_history.y.T[1::video_skip]
-                ):
-                    snake.state = solution.reshape(-1, 1)
-                    snake._construct(time)
-                    snake_centerline.set_xdata(snake.x_s[0, ...])
-                    snake_centerline.set_ydata(snake.x_s[1, ...])
-                    writer.grab_frame()
 
     with plt.style.context("fivethirtyeight"):
         phys_space_fig = plt.figure(figsize=(10, 8))
@@ -527,15 +686,36 @@ def run_and_visualize(*args, **kwargs):
                 c=to_rgb("xkcd:bluish"),
                 alpha=10 ** (step / n_steps - 1),
                 lw=2,
+                solid_capstyle="round",
             )
 
-        quiver_skip = int(snake.centerline.size / 30)
-        phys_space_ax.quiver(
-            snake.x_s[0, ::quiver_skip],
-            snake.x_s[1, ::quiver_skip],
-            ext_force[0, ::quiver_skip],
-            ext_force[1, ::quiver_skip],
+        # Determine time for average statistics
+        # Average statistics
+        # calculate snake motion axes based on n_past_periods time-periods
+        # final_time = kwargs["time_interval"][1]
+        final_time = sol_history.t[-1]
+
+        # Plot centerlines as well starting from some time-perid
+        past_idx, _ = calculate_period_idx(
+            final_time,
+            time_period,
+            sol_history.t,
+            candidate_n_past_periods=85,
+            override=True,
         )
+
+        phys_space_ax.scatter(
+            sol_history.y[0, past_idx:], sol_history.y[1, past_idx:], c="k", s=16,
+        )
+
+        quiver_skip = int(snake.centerline.size / 30)
+        # Don't plot a quiver for now
+        # phys_space_ax.quiver(
+        #     snake.x_s[0, ::quiver_skip],
+        #     snake.x_s[1, ::quiver_skip],
+        #     ext_force[0, ::quiver_skip],
+        #     ext_force[1, ::quiver_skip],
+        # )
         phys_space_ax.set_aspect("equal")
 
         n_steps = sol_history.t.size
@@ -545,11 +725,6 @@ def run_and_visualize(*args, **kwargs):
 
         pose_rate_history = np.zeros((n_steps,))
         steering_rate_history = np.zeros((n_steps,))
-
-        # Determine time for average statistics
-        # Average statistics
-        # calculate snake motion axes based on n_past_periods time-periods
-        final_time = kwargs["time_interval"][1]
 
         statistics = calculate_statistics(
             snake,
@@ -734,7 +909,14 @@ def run_and_visualize(*args, **kwargs):
         angle_rate_fig.show()
         velocity_fig.show()
         plt.show()
-        # print(avg_projected_velocity)
+
+
+def run_and_visualize(*args, **kwargs):
+    snake, sol_history, time_period = run_snake(*args, **kwargs)
+    if False:
+        animate_snake(snake, sol_history, time_period, snake_id=None)
+    else:
+        visualize_snake(snake, sol_history, time_period, snake_id=None, **kwargs)
     return snake, sol_history, time_period
 
 
@@ -795,7 +977,7 @@ def run_phase_space(snake_type, **kwargs):
 
 def fwd_to_run_snake(kwargs, id):
     snake, sol_history, time_period = run_snake(**kwargs)
-    SnakeWriter.write_snake_to_disk(id, sol_history)
+    SnakeWriter.write_snake_to_disk(id, sol_history, time_period)
 
     final_time = kwargs["time_interval"][1]
 
@@ -1012,7 +1194,7 @@ def main():
     these two parameters, its possible to reconstruct all desired quantitites.
     Look at `run_and_visualize` for a more complete example
     """
-    snake, sol_history = SnakeReader.load_snake_from_disk(1)
+    snake, sol_history, time_period = SnakeReader.load_snake_from_disk(1)
 
 
 if __name__ == "__main__":
