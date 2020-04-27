@@ -431,7 +431,7 @@ def calculate_cumulative_statistics(
         "fit_circle_x_center": xc,
         "fit_circle_y_center": yc,
         "fit_circle_radius": averager(integrated_distance),
-        "least_squares_fit_circle_radius": rc,
+        # "least_squares_fit_circle_radius": rc,
     }
 
 
@@ -459,7 +459,9 @@ def calculate_statistics(
         kwargs.get("steer_rate_his", None),
     )
 
-    averaged_cumulative_stats.update(averaged_force_stats)
+    # Toggle to get the force statistics too
+    # Turned off at XZ's request
+    # averaged_cumulative_stats.update(averaged_force_stats)
     return averaged_cumulative_stats
 
 
