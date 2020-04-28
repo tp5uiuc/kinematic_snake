@@ -328,9 +328,10 @@ def calculate_statistics_over_n_cycles(
 
     return {
         "magnitude_of_average_force": cumulative_magnitude_of_average_force / n_iters,
-        "average_of_force_magnitude": cumulative_average_force_magnitude / n_iters,
-        "average_of_normal_force_magnitude": cumulative_average_force_magnitude_in_normal_direction
-        / n_iters,
+        # Commented out as per XZ's request
+        # "average_of_force_magnitude": cumulative_average_force_magnitude / n_iters,
+        # "average_of_normal_force_magnitude": cumulative_average_force_magnitude_in_normal_direction
+        # / n_iters,
     }
 
 
@@ -417,7 +418,7 @@ def calculate_cumulative_statistics(
     position_com_over_averaging_window = sol_his.y[:2, past_per_index:]
     xc, yc, rc = fit_circle_to_data(position_com_over_averaging_window, verbose=False)
 
-    # Do not trust this radius, use the following estimate
+    # Do not trust the above radius, use the following estimate
     # Teja : In the "good" cases, it doesn't make any difference
     computed_com = np.array([xc, yc])
     integrated_distance = np.linalg.norm(sol_his.y[:2].reshape(2, -1) - computed_com.reshape(2, 1), 2, axis=0)
@@ -459,9 +460,7 @@ def calculate_statistics(
         kwargs.get("steer_rate_his", None),
     )
 
-    # Toggle to get the force statistics too
-    # Turned off at XZ's request
-    # averaged_cumulative_stats.update(averaged_force_stats)
+    averaged_cumulative_stats.update(averaged_force_stats)
     return averaged_cumulative_stats
 
 
