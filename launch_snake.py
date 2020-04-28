@@ -426,8 +426,12 @@ def calculate_cumulative_statistics(
     return {
         "average_pose_angle": averager(pose_ang_his),
         "average_steer_angle": averager(steer_ang_his),
-        "average_pose_rate": averager(pose_rate_his),
-        "average_steer_rate": averager(steer_rate_his),
+        # Doing this seems to accumulate error from floating point precision effects
+        # Rather use Leibniz's integral theorem \int_{T_N}^{T_M} df/dt dt = f(T_M) - f(T_N)
+        # "average_pose_rate": averager(pose_rate_his),
+        # "average_steer_rate": averager(steer_rate_his),
+        "average_pose_rate": (pose_ang_his[-1] - pose_ang_his[past_per_index]) / past_time,
+        "average_steer_rate": (steer_ang_his[-1] - steer_ang_his[past_per_index]) / past_time,
         "average_speed": averager(average_speed),
         "fit_circle_x_center": xc,
         "fit_circle_y_center": yc,
