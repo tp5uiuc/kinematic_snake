@@ -22,9 +22,9 @@ def make_snake(froude, time_interval, snake_type, **kwargs):
     )
 
     def activation(s, time, epsilon, wave_number):
-        return epsilon * sp.cos(wave_number * sp.pi * (s + time))
+        return epsilon * sp.cos(2.0 * wave_number * sp.pi * (s + time))
 
-    wave_number = kwargs.get("wave_number", 2.0)
+    wave_number = kwargs.get("wave_number", 1.0)
     bound_activation = kwargs.get(
         "activation",
         partial(
@@ -39,7 +39,7 @@ def make_snake(froude, time_interval, snake_type, **kwargs):
         def lifting_activation(s, time_v, phase, lift_amp, lift_wave_number):
             if time_v > 2.0:
                 liftwave = (
-                        lift_amp * np.cos(lift_wave_number * np.pi * (s + phase + time_v))
+                        lift_amp * np.cos(2.0 * lift_wave_number * np.pi * (s + phase + time_v))
                         + 1.0
                 )
                 np.maximum(0, liftwave, out=liftwave)
