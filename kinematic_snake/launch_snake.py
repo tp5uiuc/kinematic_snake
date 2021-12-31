@@ -41,9 +41,9 @@ def make_snake(froude, time_interval, snake_type, **kwargs):
         def lifting_activation(s, time_v, phase, lift_amp, lift_wave_number):
             if time_v > 2.0:
                 liftwave = (
-                    lift_amp
-                    * np.cos(2.0 * lift_wave_number * np.pi * (s + phase + time_v))
-                    + 1.0
+                        lift_amp
+                        * np.cos(2.0 * lift_wave_number * np.pi * (s + phase + time_v))
+                        + 1.0
                 )
                 np.maximum(0, liftwave, out=liftwave)
                 return liftwave / trapz(liftwave, s)
@@ -218,12 +218,12 @@ class SnakeWriter(SnakeIO):
 
 
 def calculate_average_force_per_cycle(
-    sim_snake,
-    sol_his,
-    period_start_idx,
-    period_stop_idx,
-    force_history_in_cycle=None,
-    mag_normal_projection_of_force_history_in_cycle=None,
+        sim_snake,
+        sol_his,
+        period_start_idx,
+        period_stop_idx,
+        force_history_in_cycle=None,
+        mag_normal_projection_of_force_history_in_cycle=None,
 ):
     n_steps = period_stop_idx - period_start_idx
 
@@ -238,7 +238,7 @@ def calculate_average_force_per_cycle(
     start_end = slice(period_start_idx, period_stop_idx)
 
     for step, (time, solution) in enumerate(
-        zip(sol_his.t[start_end], sol_his.y[:, start_end].T)
+            zip(sol_his.t[start_end], sol_his.y[:, start_end].T)
     ):
         sim_snake.state = solution.reshape(-1, 1)
         sim_snake._construct(time)
@@ -287,7 +287,7 @@ def calculate_average_force_per_cycle(
 
 
 def calculate_period_start_stop_idx(
-    sol_his_time, fin_time, t_period, candidate_n_past_periods
+        sol_his_time, fin_time, t_period, candidate_n_past_periods
 ):
     # Give a transitent of at leat 0.4*final_time
     n_past_periods = (
@@ -307,7 +307,7 @@ def calculate_period_start_stop_idx(
 
 
 def calculate_statistics_over_n_cycles(
-    sim_snake, sol_his, fin_time, time_period, candidate_n_past_periods
+        sim_snake, sol_his, fin_time, time_period, candidate_n_past_periods
 ):
     """
 
@@ -323,7 +323,7 @@ def calculate_statistics_over_n_cycles(
     cumulative_average_force_magnitude_in_normal_direction = 0.0
     n_iters = 0
     for start_idx, stop_idx in calculate_period_start_stop_idx(
-        sol_his.t, fin_time, time_period, int(candidate_n_past_periods)
+            sol_his.t, fin_time, time_period, int(candidate_n_past_periods)
     ):
         (
             avg_force,
@@ -347,13 +347,13 @@ def calculate_statistics_over_n_cycles(
 
 
 def calculate_period_idx(
-    fin_time, t_period, sol_his_t, candidate_n_past_periods=8, override=False
+        fin_time, t_period, sol_his_t, candidate_n_past_periods=8, override=False
 ):
     # Give a transitent of at leat 0.4*final_time
     n_past_periods = (
         candidate_n_past_periods
         if ((fin_time - candidate_n_past_periods * t_period) > 0.4 * fin_time)
-        or override
+           or override
         else 3
     )
     past_period_idx = np.argmin(
@@ -363,14 +363,14 @@ def calculate_period_idx(
 
 
 def calculate_cumulative_statistics(
-    sim_snake,
-    sol_his,
-    past_per_index,
-    past_time,
-    pose_ang_his=None,
-    steer_ang_his=None,
-    pose_rate_his=None,
-    steer_rate_his=None,
+        sim_snake,
+        sol_his,
+        past_per_index,
+        past_time,
+        pose_ang_his=None,
+        steer_ang_his=None,
+        pose_rate_his=None,
+        steer_rate_his=None,
 ):
     """Calculates average pose angle, average pose_angle_rate
     and average turning_rate statistics, cumulated for last many cycles
@@ -404,10 +404,10 @@ def calculate_cumulative_statistics(
     steer_rate_his[0] = 0.0
     for step in range(sol_his.t.size - 2):
         pose_rate_his[step + 1] = (pose_ang_his[step + 2] - pose_ang_his[step]) / (
-            sol_his.t[step + 2] - sol_his.t[step]
+                sol_his.t[step + 2] - sol_his.t[step]
         )
         steer_rate_his[step + 1] = (steer_ang_his[step + 2] - steer_ang_his[step]) / (
-            sol_his.t[step + 2] - sol_his.t[step]
+                sol_his.t[step + 2] - sol_his.t[step]
         )
 
     def averager(x):
@@ -415,12 +415,12 @@ def calculate_cumulative_statistics(
         # assert(np.allclose(past_time, sol_his.t[-1] - sol_his.t[past_per_index]))
         # Try and replace with simps to see if there's any change in the results
         avg_val = (
-            simps(
-                x[..., past_per_index:],
-                sol_his.t[past_per_index:],
-                axis=-1,
-            )
-            / past_time
+                simps(
+                    x[..., past_per_index:],
+                    sol_his.t[past_per_index:],
+                    axis=-1,
+                )
+                / past_time
         )
         return avg_val
 
@@ -448,9 +448,9 @@ def calculate_cumulative_statistics(
         # "average_pose_rate": averager(pose_rate_his),
         # "average_steer_rate": averager(steer_rate_his),
         "average_pose_rate": (pose_ang_his[-1] - pose_ang_his[past_per_index])
-        / past_time,
+                             / past_time,
         "average_steer_rate": (steer_ang_his[-1] - steer_ang_his[past_per_index])
-        / past_time,
+                              / past_time,
         "average_speed": averager(average_speed),
         "fit_circle_x_center": xc,
         "fit_circle_y_center": yc,
@@ -461,7 +461,7 @@ def calculate_cumulative_statistics(
 
 
 def calculate_statistics(
-    sim_snake, sol_his, final_time, time_period, candidate_n_past_periods=8, **kwargs
+        sim_snake, sol_his, final_time, time_period, candidate_n_past_periods=8, **kwargs
 ):
     # First calculate per period statistics over candidate_n_cycles
     averaged_force_stats = calculate_statistics_over_n_cycles(
@@ -539,7 +539,7 @@ def animate_snake_with_interpolation(snake, sol_history, time_period, snake_id=N
 
     # Should depend on the total size o f
     n_steps_in_total = sol_history.t.shape[0]
-    video_skip = max(int(n_steps_in_total / fps / 20.0), 1)
+    # video_skip = max(int(n_steps_in_total / fps / 20.0), 1)
     # print(n_steps_in_total, video_skip)
     # return
 
@@ -586,12 +586,12 @@ def animate_snake_with_interpolation(snake, sol_history, time_period, snake_id=N
         # assert(np.allclose(past_time, sol_his.t[-1] - sol_his.t[past_per_index]))
         # Try and replace with simps to see if there's any change in the results
         return (
-            simps(
-                x[..., start_idx:stop_idx],
-                t_mesh[start_idx:stop_idx],
-                axis=-1,
-            )
-            / time_period
+                simps(
+                    x[..., start_idx:stop_idx],
+                    t_mesh[start_idx:stop_idx],
+                    axis=-1,
+                )
+                / time_period
         )
 
     # The first element contains average of first cycle and should be plotting after t = period
@@ -679,14 +679,14 @@ def animate_snake(snake, sol_history, time_period, snake_id=None):
     ax.set_ylim([-1.0, 1.0])
 
     # Should depend on the total size o f
-    n_steps_in_total = sol_history.t.shape[0]
+    # n_steps_in_total = sol_history.t.shape[0]
     video_skip = 2
 
-    total_time = sol_history.t[-1]
+    # total_time = sol_history.t[-1]
 
     with writer.saving(fig, video_name, dpi):
         for time, solution in zip(
-            sol_history.t[1::video_skip], sol_history.y.T[1::video_skip]
+                sol_history.t[1::video_skip], sol_history.y.T[1::video_skip]
         ):
             snake.state = solution.reshape(-1, 1)
             snake._construct(time)
@@ -720,11 +720,11 @@ def visualize_snake(snake, sol_history, time_period, snake_id=None, **kwargs):
         n_steps = sol_history.t[::skip].size
 
         for step, (time, solution) in enumerate(
-            zip(sol_history.t[::skip], sol_history.y.T[::skip])
+                zip(sol_history.t[::skip], sol_history.y.T[::skip])
         ):
             snake.state = solution.reshape(-1, 1)
             snake._construct(time)
-            ext_force = snake.external_force_distribution(time)
+            # ext_force = snake.external_force_distribution(time)
             phys_space_ax.plot(
                 snake.x_s[0, ...],
                 snake.x_s[1, ...],
@@ -756,8 +756,8 @@ def visualize_snake(snake, sol_history, time_period, snake_id=None, **kwargs):
             s=16,
         )
 
-        quiver_skip = int(snake.centerline.size / 30)
-        # Don't plot a quiver for now
+        # quiver_skip = int(snake.centerline.size / 30)
+        # # Don't plot a quiver for now
         # phys_space_ax.quiver(
         #     snake.x_s[0, ::quiver_skip],
         #     snake.x_s[1, ::quiver_skip],
@@ -906,12 +906,12 @@ def visualize_snake(snake, sol_history, time_period, snake_id=None, **kwargs):
 
             # calculate average statistics
             avg_projected_velocity = (
-                simps(
-                    projected_velocity[..., past_period_idx:],
-                    sol_history.t[past_period_idx:],
-                    axis=-1,
-                )
-                / time_elapsed_in_past_periods
+                    simps(
+                        projected_velocity[..., past_period_idx:],
+                        sol_history.t[past_period_idx:],
+                        axis=-1,
+                    )
+                    / time_elapsed_in_past_periods
             )
 
             velocity_ax.plot(sol_history.t, projected_velocity[0], lw=2, label="fwd")
@@ -1045,14 +1045,14 @@ def main():
 
     """
 
-    Exploring solution space 
-    ---------------------
+    Exploring solution space
+    ------------------------
 
     """
     """
     1.1 Running a single case with default parameters for (curvature)
     activation (referred to as simply activation) for a non-lifting snake.
-    The default activation is a cos wave with 
+    The default activation is a cos wave with
     𝜅 = ε cos (k 𝛑 (s + t))
     where ε = 7.0 and k = 2.0
     """
@@ -1088,13 +1088,13 @@ def main():
     """
     2.1 If you want a Lifting snake with default parameters (for both
     activation and lifting activation), change the `snake_type` keyword
-    as shown below. 
-    
+    as shown below.
+
     The default curvature activation is 𝜅 = ε cos (k_1 𝛑 (s + t))
     The default lifting activation is A = 1 + lift_amp * cos (k_2 𝛑 (s + t + φ) )
-    where φ is the phase-difference between the curvature and lift waves. The 
+    where φ is the phase-difference between the curvature and lift waves. The
     lift waves is switched on instantaneously after t = 2.0 seconds
-    
+
     Here ε = 7.0 and k_1 = 2.0 are defaulted while lift_amp = 1.0, k_2 = k_1 and
     φ = 0.26 are set as defaults
     """
@@ -1132,16 +1132,16 @@ def main():
     )
 
     """
-    3. If you want to rather provide your own activation functions, you can 
+    3. If you want to rather provide your own activation functions, you can
     do so as shown below. Note that both the activation and lifting activation
     need to be a function of (s,time_v) where s is the centerline and time_v
     is the simulation time. This enables rapid prototyping for quickly changing
     activation (say rampup time etc.)
-    
+
     Note that both are optional, hence if you want to retain default curvature
     activation, but change lifting activation, simply provide only the lifting
     activation function!
-    
+
     In case you are running a non-lifting snake, then just set the custom
     curvature activation, the lifting activation will automatically be ignored.
     """
@@ -1156,7 +1156,7 @@ def main():
     def my_custom_lifting_activation(s, time_v):
         if time_v > 2.0:
             liftwave = (
-                lift_amp * np.cos(wave_number * np.pi * (s + phase + time_v)) + 1.0
+                    lift_amp * np.cos(wave_number * np.pi * (s + phase + time_v)) + 1.0
             )
             np.maximum(0, liftwave, out=liftwave)
             return liftwave / trapz(liftwave, s)
@@ -1175,10 +1175,10 @@ def main():
     )
 
     """
-    
+
     Running a phase-space
     ---------------------
-    
+
     """
 
     """
@@ -1187,17 +1187,17 @@ def main():
     hard to store data if custom functions are passed (even with packages like `dill`
     nd `pickle`). So for now let's restrict the list of possible functions to only
     the default ones provided.
-    
+
     With these functions, here's how you run a phase-space. We create a dict of lists
     as parameters as shown below. The `run_phase_space` function creates a cartesian
     product and then runs all simulations and stores the data for later re-use.
-    
+
     Note that we need to provide whether the phase-space is for a KinematicSnake or a
-    LiftingSnake below, which also gets forwarded to the simulation. 
-    
-    The order of keys below does not matter, the phase-space function takes care of 
+    LiftingSnake below, which also gets forwarded to the simulation.
+
+    The order of keys below does not matter, the phase-space function takes care of
     appropriately re-arranging it.
-    
+
     """
     kwargs = OrderedDict(
         {
@@ -1211,7 +1211,7 @@ def main():
         }
     )
 
-    ps = run_phase_space(snake_type=KinematicSnake, **kwargs)
+    ps = run_phase_space(snake_type=KinematicSnake, **kwargs) # noqa
 
     """
     4.2 Phase-space for a LiftingSnake
@@ -1231,16 +1231,16 @@ def main():
         }
     )
 
-    ps = run_phase_space(snake_type=LiftingKinematicSnake, **kwargs)
+    ps = run_phase_space(snake_type=LiftingKinematicSnake, **kwargs)  # noqa
 
     """
     5. If you want to load up a saved-snake from file (after running a
     phase-space), you can consult the simulation_id from the `ids.csv` file
     that the simulation creates within the `data` folder in the home directory.
-    
+
     Once you know the simulation id you can pass it to the SnakeReader as shown
     below, which constructs the snake and the time-history of COM motions. With
     these two parameters, its possible to reconstruct all desired quantitites.
     Look at `run_and_visualize` for a more complete example
     """
-    snake, sol_history, time_period = SnakeReader.load_snake_from_disk(1)
+    snake, sol_history, time_period = SnakeReader.load_snake_from_disk(1) # noqa

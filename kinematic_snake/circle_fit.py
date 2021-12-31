@@ -55,7 +55,7 @@ def circle_fit_impl(x):
 
     def jacobian_objective(c):
         """Jacobian of above objective function
-        By definition from scipy J_{ij} = \partial f_{i}/ \partial x_{j}
+        By definition from scipy J_{ij} = \\partial f_{i}/ \\partial x_{j}
         Hence J is a (n,2) matrix below
 
         Parameters
