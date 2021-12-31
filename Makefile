@@ -22,7 +22,7 @@ flake8:
 clean_notebooks:
     # This finds Ipython jupyter notebooks in the code
     # base and cleans only its output results. This
-    # results in 
+    # results in
 	@jupyter nbconvert --version
 	@find . -maxdepth 3 -name '*.ipynb'\
 		| while read -r src; do jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace "$$src"; done
@@ -32,5 +32,5 @@ pylint:
 	@find . -maxdepth 3 -name '*.py'\
 		| while read -r src; do pylint -rn "$$src"; done
 
-all:black pylint flake8
+all:black flake8
 ci:black_check flake8
