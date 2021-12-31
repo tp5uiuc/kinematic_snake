@@ -95,7 +95,7 @@ class TestKinematicSnake:
         friction_coefficients = {"mu_f": 0.1, "mu_b": 0.2, "mu_lat": 0.3}
 
         def activation(s, time):
-            """ Flat snake """
+            """Flat snake"""
             return 0.0 * (s + time)
 
         snake = KinematicSnake(
@@ -158,7 +158,7 @@ class TestKinematicSnake:
         assert_allclose(np.sum(friction_torque), expected_torque, atol=1e-6)
 
     def test_moment_of_inertia_accuracy(self, load_snake):
-        """ For a straight rod, compare against analytical solution
+        """For a straight rod, compare against analytical solution
 
         Parameters
         ----------

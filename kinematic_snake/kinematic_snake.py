@@ -6,7 +6,7 @@ from scipy.integrate import trapz, cumtrapz
 
 
 def zero_mean_integral(sampled_func, samples):
-    """ Zero mean integral from 0 to 1 always.
+    """Zero mean integral from 0 to 1 always.
     Can be scaled up and down as a post-processing step.
 
     Parameters
@@ -75,7 +75,7 @@ class KinematicSnake:
 
     def set_activation(self, func):
         def broadcast(fun):
-            """ Required because sp.diff of a constant function
+            """Required because sp.diff of a constant function
             returns by default a constant value (float) and not
             an array of floats as one would expect.
 
@@ -145,7 +145,9 @@ class KinematicSnake:
         )
 
     def __calculate_vector_in_velocity_direction(self):
-        dx_dt_com = self.state[3:5, ...].reshape(-1,)
+        dx_dt_com = self.state[3:5, ...].reshape(
+            -1,
+        )
         mag_dx_dt_com = np.linalg.norm(dx_dt_com)
         return dx_dt_com, mag_dx_dt_com
 
@@ -153,7 +155,9 @@ class KinematicSnake:
         theta_com = self.state[2, ...]
         unit_vector_in_average_orientation_direction = np.array(
             [np.cos(theta_com), np.sin(theta_com)]
-        ).reshape(-1,)
+        ).reshape(
+            -1,
+        )
         with np.errstate(invalid="ignore"):
             # Similar to doing an arctan in relative coordinates
             signbit = np.sign(
@@ -180,7 +184,7 @@ class KinematicSnake:
         return self.__calculate_pose_impl(dx_dt_com, mag_dx_dt_com)
 
     def calculate_instantaneous_pose_rate(self, time):
-        """ Checked with a finite-difference version, seems to match-up
+        """Checked with a finite-difference version, seems to match-up
 
         Parameters
         ----------
@@ -198,19 +202,25 @@ class KinematicSnake:
         external_force_distribution = self.external_force_distribution(time)
         linear_acceleration = (
             trapz(external_force_distribution, self.centerline) / self.froude
-        ).reshape(-1,)
+        ).reshape(
+            -1,
+        )
 
         theta_com = self.state[2, ...]
         unit_vector_in_average_orientation_direction = np.array(
             [np.cos(theta_com), np.sin(theta_com)]
-        ).reshape(-1,)
+        ).reshape(
+            -1,
+        )
         first_rhs = np.inner(
             linear_acceleration, unit_vector_in_average_orientation_direction
         )
 
         unit_vector_perp_to_average_orientation = np.array(
             [-np.sin(theta_com), np.cos(theta_com)]
-        ).reshape(-1,)
+        ).reshape(
+            -1,
+        )
         second_rhs = (
             np.inner(dx_dt_com, unit_vector_perp_to_average_orientation)
             * self.state[5, 0]

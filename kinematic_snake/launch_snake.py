@@ -28,7 +28,9 @@ def make_snake(froude, time_interval, snake_type, **kwargs):
     bound_activation = kwargs.get(
         "activation",
         partial(
-            activation, epsilon=kwargs.get("epsilon", 7.0), wave_number=wave_number,
+            activation,
+            epsilon=kwargs.get("epsilon", 7.0),
+            wave_number=wave_number,
         ),
     )
 
@@ -39,8 +41,9 @@ def make_snake(froude, time_interval, snake_type, **kwargs):
         def lifting_activation(s, time_v, phase, lift_amp, lift_wave_number):
             if time_v > 2.0:
                 liftwave = (
-                        lift_amp * np.cos(2.0 * lift_wave_number * np.pi * (s + phase + time_v))
-                        + 1.0
+                    lift_amp
+                    * np.cos(2.0 * lift_wave_number * np.pi * (s + phase + time_v))
+                    + 1.0
                 )
                 np.maximum(0, liftwave, out=liftwave)
                 return liftwave / trapz(liftwave, s)
@@ -82,7 +85,9 @@ def run_snake(froude, time_interval=[0.0, 5.0], snake_type=KinematicSnake, **kwa
     sol = solve_ivp(
         snake,
         time_interval,
-        snake.state.copy().reshape(-1, ),
+        snake.state.copy().reshape(
+            -1,
+        ),
         method="RK23",
         events=events,
         # t_eval = np.linspace(time_interval[0], time_interval[1], 1e4)
@@ -92,7 +97,13 @@ def run_snake(froude, time_interval=[0.0, 5.0], snake_type=KinematicSnake, **kwa
     # Monkey patching
     if events is not None:
         insert_idx = np.searchsorted(sol.t, sol.t_events)
-        sol.t = np.insert(sol.t, insert_idx[:, 0], np.array(sol.t_events).reshape(-1, ))
+        sol.t = np.insert(
+            sol.t,
+            insert_idx[:, 0],
+            np.array(sol.t_events).reshape(
+                -1,
+            ),
+        )
         sol.y = np.insert(
             sol.y, insert_idx[:, 0], np.squeeze(np.array(sol.y_events)).T, axis=1
         )
@@ -207,12 +218,12 @@ class SnakeWriter(SnakeIO):
 
 
 def calculate_average_force_per_cycle(
-        sim_snake,
-        sol_his,
-        period_start_idx,
-        period_stop_idx,
-        force_history_in_cycle=None,
-        mag_normal_projection_of_force_history_in_cycle=None,
+    sim_snake,
+    sol_his,
+    period_start_idx,
+    period_stop_idx,
+    force_history_in_cycle=None,
+    mag_normal_projection_of_force_history_in_cycle=None,
 ):
     n_steps = period_stop_idx - period_start_idx
 
@@ -227,7 +238,7 @@ def calculate_average_force_per_cycle(
     start_end = slice(period_start_idx, period_stop_idx)
 
     for step, (time, solution) in enumerate(
-            zip(sol_his.t[start_end], sol_his.y[:, start_end].T)
+        zip(sol_his.t[start_end], sol_his.y[:, start_end].T)
     ):
         sim_snake.state = solution.reshape(-1, 1)
         sim_snake._construct(time)
@@ -276,7 +287,7 @@ def calculate_average_force_per_cycle(
 
 
 def calculate_period_start_stop_idx(
-        sol_his_time, fin_time, t_period, candidate_n_past_periods
+    sol_his_time, fin_time, t_period, candidate_n_past_periods
 ):
     # Give a transitent of at leat 0.4*final_time
     n_past_periods = (
@@ -296,7 +307,7 @@ def calculate_period_start_stop_idx(
 
 
 def calculate_statistics_over_n_cycles(
-        sim_snake, sol_his, fin_time, time_period, candidate_n_past_periods
+    sim_snake, sol_his, fin_time, time_period, candidate_n_past_periods
 ):
     """
 
@@ -312,7 +323,7 @@ def calculate_statistics_over_n_cycles(
     cumulative_average_force_magnitude_in_normal_direction = 0.0
     n_iters = 0
     for start_idx, stop_idx in calculate_period_start_stop_idx(
-            sol_his.t, fin_time, time_period, int(candidate_n_past_periods)
+        sol_his.t, fin_time, time_period, int(candidate_n_past_periods)
     ):
         (
             avg_force,
@@ -336,13 +347,13 @@ def calculate_statistics_over_n_cycles(
 
 
 def calculate_period_idx(
-        fin_time, t_period, sol_his_t, candidate_n_past_periods=8, override=False
+    fin_time, t_period, sol_his_t, candidate_n_past_periods=8, override=False
 ):
     # Give a transitent of at leat 0.4*final_time
     n_past_periods = (
         candidate_n_past_periods
         if ((fin_time - candidate_n_past_periods * t_period) > 0.4 * fin_time)
-           or override
+        or override
         else 3
     )
     past_period_idx = np.argmin(
@@ -352,16 +363,16 @@ def calculate_period_idx(
 
 
 def calculate_cumulative_statistics(
-        sim_snake,
-        sol_his,
-        past_per_index,
-        past_time,
-        pose_ang_his=None,
-        steer_ang_his=None,
-        pose_rate_his=None,
-        steer_rate_his=None,
+    sim_snake,
+    sol_his,
+    past_per_index,
+    past_time,
+    pose_ang_his=None,
+    steer_ang_his=None,
+    pose_rate_his=None,
+    steer_rate_his=None,
 ):
-    """ Calculates average pose angle, average pose_angle_rate
+    """Calculates average pose angle, average pose_angle_rate
     and average turning_rate statistics, cumulated for last many cycles
 
     Returns
@@ -393,10 +404,10 @@ def calculate_cumulative_statistics(
     steer_rate_his[0] = 0.0
     for step in range(sol_his.t.size - 2):
         pose_rate_his[step + 1] = (pose_ang_his[step + 2] - pose_ang_his[step]) / (
-                sol_his.t[step + 2] - sol_his.t[step]
+            sol_his.t[step + 2] - sol_his.t[step]
         )
         steer_rate_his[step + 1] = (steer_ang_his[step + 2] - steer_ang_his[step]) / (
-                sol_his.t[step + 2] - sol_his.t[step]
+            sol_his.t[step + 2] - sol_his.t[step]
         )
 
     def averager(x):
@@ -404,8 +415,12 @@ def calculate_cumulative_statistics(
         # assert(np.allclose(past_time, sol_his.t[-1] - sol_his.t[past_per_index]))
         # Try and replace with simps to see if there's any change in the results
         avg_val = (
-                simps(x[..., past_per_index:], sol_his.t[past_per_index:], axis=-1, )
-                / past_time
+            simps(
+                x[..., past_per_index:],
+                sol_his.t[past_per_index:],
+                axis=-1,
+            )
+            / past_time
         )
         return avg_val
 
@@ -421,7 +436,9 @@ def calculate_cumulative_statistics(
     # Do not trust the above radius, use the following estimate
     # Teja : In the "good" cases, it doesn't make any difference
     computed_com = np.array([xc, yc])
-    integrated_distance = np.linalg.norm(sol_his.y[:2].reshape(2, -1) - computed_com.reshape(2, 1), 2, axis=0)
+    integrated_distance = np.linalg.norm(
+        sol_his.y[:2].reshape(2, -1) - computed_com.reshape(2, 1), 2, axis=0
+    )
 
     return {
         "average_pose_angle": averager(pose_ang_his),
@@ -430,19 +447,21 @@ def calculate_cumulative_statistics(
         # Rather use Leibniz's integral theorem \int_{T_N}^{T_M} df/dt dt = f(T_M) - f(T_N)
         # "average_pose_rate": averager(pose_rate_his),
         # "average_steer_rate": averager(steer_rate_his),
-        "average_pose_rate": (pose_ang_his[-1] - pose_ang_his[past_per_index]) / past_time,
-        "average_steer_rate": (steer_ang_his[-1] - steer_ang_his[past_per_index]) / past_time,
+        "average_pose_rate": (pose_ang_his[-1] - pose_ang_his[past_per_index])
+        / past_time,
+        "average_steer_rate": (steer_ang_his[-1] - steer_ang_his[past_per_index])
+        / past_time,
         "average_speed": averager(average_speed),
         "fit_circle_x_center": xc,
         "fit_circle_y_center": yc,
         "fit_circle_radius": averager(integrated_distance),
         # "least_squares_fit_circle_radius": rc,
-        "time_elapsed_in_past_periods": past_time
+        "time_elapsed_in_past_periods": past_time,
     }
 
 
 def calculate_statistics(
-        sim_snake, sol_his, final_time, time_period, candidate_n_past_periods=8, **kwargs
+    sim_snake, sol_his, final_time, time_period, candidate_n_past_periods=8, **kwargs
 ):
     # First calculate per period statistics over candidate_n_cycles
     averaged_force_stats = calculate_statistics_over_n_cycles(
@@ -499,7 +518,7 @@ def animate_snake_with_interpolation(snake, sol_history, time_period, snake_id=N
     # colors = np.zeros((2, 4))
     # colors[:, 3] = 1.0 # alpha channel
     # Only one that works : https://stackoverflow.com/a/48156476
-    colors = [[0., 0., 0., 0.], [0., 0., 0., 0.5], [0., 0., 0., 1.0]]
+    colors = [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.5], [0.0, 0.0, 0.0, 1.0]]
     cmap = LinearSegmentedColormap.from_list("", colors)
     snake_com = ax.scatter(x_com, y_com, c=[], s=16, cmap=cmap, vmin=0, vmax=1)
     time_in_text = plt.text(
@@ -533,8 +552,11 @@ def animate_snake_with_interpolation(snake, sol_history, time_period, snake_id=N
     # total_n_points = T / dt = fps * T / 2
     total_n_points = int(0.5 * total_time * fps)
     t_mesh = np.linspace(0.0, total_time, total_n_points + 1)
-    print("Number of simulation samples {0} vs number of interpolated samples {1}".format(n_steps_in_total,
-                                                                                          total_n_points))
+    print(
+        "Number of simulation samples {0} vs number of interpolated samples {1}".format(
+            n_steps_in_total, total_n_points
+        )
+    )
 
     # scatter plot recency parameter / exp weight
     recency_weight = 0.25
@@ -544,6 +566,7 @@ def animate_snake_with_interpolation(snake, sol_history, time_period, snake_id=N
 
     # We now form cubic interpolants to all data at different points
     from scipy.interpolate import interp1d
+
     state_interpolant = interp1d(sol_history.t, sol_history.y)
 
     interpolated_mesh = state_interpolant(t_mesh)
@@ -554,24 +577,34 @@ def animate_snake_with_interpolation(snake, sol_history, time_period, snake_id=N
     period_indices = [np.argmin(np.abs(t_mesh - period)) for period in periods]
     # Annoying +1 here to account for the fact that the full cycle is from [start,stop] (stop includeed)
     # which doesn't work upon slicing
-    period_indices_start_stop_pair = [(x, y + 1) for x, y in zip(period_indices[:-1], period_indices[1:])]
+    period_indices_start_stop_pair = [
+        (x, y + 1) for x, y in zip(period_indices[:-1], period_indices[1:])
+    ]
 
     def averager(x, start_idx, stop_idx):
         # calculate average statistics
         # assert(np.allclose(past_time, sol_his.t[-1] - sol_his.t[past_per_index]))
         # Try and replace with simps to see if there's any change in the results
         return (
-                simps(x[..., start_idx:stop_idx], t_mesh[start_idx: stop_idx], axis=-1, )
-                / time_period
+            simps(
+                x[..., start_idx:stop_idx],
+                t_mesh[start_idx:stop_idx],
+                axis=-1,
+            )
+            / time_period
         )
 
     # The first element contains average of first cycle and should be plotting after t = period
     average_com = np.array(
-        [averager(interpolated_mesh[:2], start, stop) for (start, stop) in period_indices_start_stop_pair])
+        [
+            averager(interpolated_mesh[:2], start, stop)
+            for (start, stop) in period_indices_start_stop_pair
+        ]
+    )
     # The cisualization starts from this point onwards
     start_cycle = 6
     average_com_counter = start_cycle
-    average_snake_com = ax.scatter([], [], c='r', s=16)
+    average_snake_com = ax.scatter([], [], c="r", s=16)
 
     with writer.saving(fig, video_name, dpi):
         for t_ind, time in enumerate(tqdm(t_mesh)):
@@ -591,7 +624,9 @@ def animate_snake_with_interpolation(snake, sol_history, time_period, snake_id=N
             past_time = t_mesh[:t_ind]
             snake_com.set_array(np.exp(recency_weight * (past_time - time)))
             if t_ind == period_indices[average_com_counter]:
-                average_snake_com.set_offsets(average_com[start_cycle:average_com_counter, :2])
+                average_snake_com.set_offsets(
+                    average_com[start_cycle:average_com_counter, :2]
+                )
                 average_com_counter += 1
             writer.grab_frame()
 
@@ -626,7 +661,7 @@ def animate_snake(snake, sol_history, time_period, snake_id=None):
     # colors = np.zeros((2, 4))
     # colors[:, 3] = 1.0 # alpha channel
     # Only one that works : https://stackoverflow.com/a/48156476
-    snake_com = ax.scatter(x_com, y_com, c='k', s=16)
+    snake_com = ax.scatter(x_com, y_com, c="k", s=16)
     time_in_text = plt.text(
         0.5,
         0.9,
@@ -651,7 +686,7 @@ def animate_snake(snake, sol_history, time_period, snake_id=None):
 
     with writer.saving(fig, video_name, dpi):
         for time, solution in zip(
-                sol_history.t[1::video_skip], sol_history.y.T[1::video_skip]
+            sol_history.t[1::video_skip], sol_history.y.T[1::video_skip]
         ):
             snake.state = solution.reshape(-1, 1)
             snake._construct(time)
@@ -685,7 +720,7 @@ def visualize_snake(snake, sol_history, time_period, snake_id=None, **kwargs):
         n_steps = sol_history.t[::skip].size
 
         for step, (time, solution) in enumerate(
-                zip(sol_history.t[::skip], sol_history.y.T[::skip])
+            zip(sol_history.t[::skip], sol_history.y.T[::skip])
         ):
             snake.state = solution.reshape(-1, 1)
             snake._construct(time)
@@ -715,7 +750,10 @@ def visualize_snake(snake, sol_history, time_period, snake_id=None, **kwargs):
         )
 
         phys_space_ax.scatter(
-            sol_history.y[0, past_idx:], sol_history.y[1, past_idx:], c="k", s=16,
+            sol_history.y[0, past_idx:],
+            sol_history.y[1, past_idx:],
+            c="k",
+            s=16,
         )
 
         quiver_skip = int(snake.centerline.size / 30)
@@ -868,12 +906,12 @@ def visualize_snake(snake, sol_history, time_period, snake_id=None, **kwargs):
 
             # calculate average statistics
             avg_projected_velocity = (
-                    simps(
-                        projected_velocity[..., past_period_idx:],
-                        sol_history.t[past_period_idx:],
-                        axis=-1,
-                    )
-                    / time_elapsed_in_past_periods
+                simps(
+                    projected_velocity[..., past_period_idx:],
+                    sol_history.t[past_period_idx:],
+                    axis=-1,
+                )
+                / time_elapsed_in_past_periods
             )
 
             velocity_ax.plot(sol_history.t, projected_velocity[0], lw=2, label="fwd")
@@ -924,7 +962,7 @@ def visualize_snake(snake, sol_history, time_period, snake_id=None, **kwargs):
 
 def run_and_visualize(*args, **kwargs):
     snake, sol_history, time_period = run_snake(*args, **kwargs)
-    if kwargs.get('animate', False):
+    if kwargs.get("animate", False):
         animate_snake(snake, sol_history, time_period, snake_id=None)
     else:
         visualize_snake(snake, sol_history, time_period, snake_id=None, **kwargs)
@@ -1118,7 +1156,7 @@ def main():
     def my_custom_lifting_activation(s, time_v):
         if time_v > 2.0:
             liftwave = (
-                    lift_amp * np.cos(wave_number * np.pi * (s + phase + time_v)) + 1.0
+                lift_amp * np.cos(wave_number * np.pi * (s + phase + time_v)) + 1.0
             )
             np.maximum(0, liftwave, out=liftwave)
             return liftwave / trapz(liftwave, s)

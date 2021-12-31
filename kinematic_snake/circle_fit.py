@@ -38,15 +38,14 @@ def fit_circle_to_data(in_data, verbose=False):
 
 
 def circle_fit_impl(x):
-    """ (2,n) array as input
-    """
+    """(2,n) array as input"""
 
     def distance_from_center(xc, yc):
-        """ calculate the distance of each 2D points from the center (xc, yc) """
+        """calculate the distance of each 2D points from the center (xc, yc)"""
         return np.sqrt((x[0] - xc) ** 2 + (x[1] - yc) ** 2)
 
     def objective(c):
-        """ calculates the objective : algebraic distance between the data points
+        """calculates the objective : algebraic distance between the data points
         and the mean circle centered at c=(xc, yc)
 
         Maps from R^2 -> R^n where n is the number of points to map
@@ -55,7 +54,7 @@ def circle_fit_impl(x):
         return Ri - Ri.mean()
 
     def jacobian_objective(c):
-        """ Jacobian of above objective function
+        """Jacobian of above objective function
         By definition from scipy J_{ij} = \partial f_{i}/ \partial x_{j}
         Hence J is a (n,2) matrix below
 
