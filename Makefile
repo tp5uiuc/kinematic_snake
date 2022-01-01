@@ -1,11 +1,10 @@
 black:
 	@black --version
-	@black kinematic_snake tests
+	@black kinematic_snake examples tests
 
 black_check:
 	@black --version
-	@find . -maxdepth 3 -name '*.py'\
-		| while read -r src; do black --check "$$src"; done
+	@black --check kinematic_snake examples tests
 
 isort:
 	@isort --version
@@ -17,7 +16,7 @@ isort_check:
 
 flake8:
 	@flake8 --version
-	@flake8 kinematic_snake tests
+	@flake8 kinematic_snake examples tests
 
 clean_notebooks:
     # This finds Ipython jupyter notebooks in the code
