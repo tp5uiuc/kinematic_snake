@@ -41,7 +41,7 @@ def run_phase_space_for_nonlifting_snake():
         }
     )
 
-    ps = run_phase_space(snake_type=KinematicSnake, **kwargs)
+    ps = run_phase_space(snake_type=KinematicSnake, **kwargs)  # noqa
 
 
 def run_phase_space_for_lifting_snake():
@@ -63,7 +63,7 @@ def run_phase_space_for_lifting_snake():
         }
     )
 
-    ps = run_phase_space(snake_type=LiftingKinematicSnake, **kwargs)
+    ps = run_phase_space(snake_type=LiftingKinematicSnake, **kwargs)  # noqa
 
 
 def load_snake():
@@ -77,7 +77,7 @@ def load_snake():
     these two parameters, its possible to reconstruct all desired quantitites.
     Look at `run_and_visualize` for a more complete example
     """
-    snake, sol_history, time_period = SnakeReader.load_snake_from_disk(1)
+    snake, sol_history, time_period = SnakeReader.load_snake_from_disk(1)  # noqa
 
 
 if __name__ == "__main__":
