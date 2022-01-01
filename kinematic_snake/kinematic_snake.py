@@ -57,8 +57,13 @@ class KinematicSnake:
         self.centerline = np.linspace(0.0, 1.0, samples).reshape(1, -1)
         self.zmi_along_centerline = partial(zero_mean_integral, samples=self.centerline)
         print(
-            "Setup snake with Fr {1}, mu_f {0}, mu_b {2}, mu_lat {3} with dimensions {4}".format(
-                self.forward_mu, self.froude, self.backward_mu, self.lateral_mu, samples
+            "Setup {snake_type} with Fr {1}, mu_f {0}, mu_b {2}, mu_lat {3} with dimensions {4}".format(
+                self.forward_mu,
+                self.froude,
+                self.backward_mu,
+                self.lateral_mu,
+                samples,
+                snake_type=self.__class__.__name__,
             )
         )
 
