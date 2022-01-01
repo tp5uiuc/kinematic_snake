@@ -12,3 +12,6 @@ from .launch_snake import (
     SnakeReader,
     SnakeWriter,
 )
+
+Snake = KinematicSnake
+LiftingSnake = LiftingKinematicSnake
