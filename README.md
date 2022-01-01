@@ -74,3 +74,15 @@ doi={10.1038/s41467-021-26276-x},
 url={https://doi.org/10.1038/s41467-021-26276-x}
 }
 ```
+
+## Running tests
+Check [Installation](#installation) to see how to install the package. Once that is done, install the test requirements
+using 
+``` sh
+python3 -m pip install -r tests/requirements.txt
+```
+This package uses `py.test` for running unit and integration tests. To run the tests, execute 
+```sh
+python3 -m pytest
+```
+from the repository directory.
