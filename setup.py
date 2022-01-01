@@ -16,7 +16,7 @@ DESCRIPTION = (
 URL = "https://github.com/tp5uiuc/kinematic_snake"
 EMAIL = "tp5@illinois.edu"
 AUTHOR = "Tejaswin Parthsarathy, MattiaLab"
-REQUIRES_PYTHON = ">=3.5.0"
+REQUIRES_PYTHON = ">=3.6.0"
 VERSION = "1.0.0"
 
 here = os.path.abspath(os.path.dirname(__file__))
