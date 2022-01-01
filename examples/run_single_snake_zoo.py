@@ -1,11 +1,7 @@
 __doc__ = " Examples exploring solution space  "
 
 import numpy as np
-from kinematic_snake import (
-    KinematicSnake,
-    LiftingKinematicSnake,
-    run_and_visualize
-)
+from kinematic_snake import KinematicSnake, LiftingKinematicSnake, run_and_visualize
 
 
 def run_nonlifting_snake_with_default_params():
@@ -39,7 +35,7 @@ def animate_nonlifting_snake_with_default_params():
         mu_b=1.5,
         mu_lat=2.0,
         # Flag!
-        animate=True
+        animate=True,
     )
 
 
@@ -138,14 +134,16 @@ def run_snake_with_custom_activation():
 
     # Needs to be differentiated for which we use sympy
     import sympy as sp
+
     def my_custom_activation(s, time_v):
         return epsilon * sp.cos(wave_number * sp.pi * (s + time_v))
 
     from scipy.integrate import trapz
+
     def my_custom_lifting_activation(s, time_v):
         if time_v > 2.0:
             liftwave = (
-                    lift_amp * np.cos(wave_number * np.pi * (s + phase + time_v)) + 1.0
+                lift_amp * np.cos(wave_number * np.pi * (s + phase + time_v)) + 1.0
             )
             np.maximum(0, liftwave, out=liftwave)
             return liftwave / trapz(liftwave, s)

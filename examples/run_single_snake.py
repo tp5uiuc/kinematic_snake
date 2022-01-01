@@ -1,6 +1,6 @@
 from kinematic_snake import run_and_visualize, KinematicSnake, LiftingKinematicSnake
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("Running a snake with default activation")
     snake, sol_history, time_period = run_and_visualize(
         froude=1,  # The froude number

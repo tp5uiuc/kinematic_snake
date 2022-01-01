@@ -5,9 +5,10 @@ from kinematic_snake import (
     KinematicSnake,
     LiftingKinematicSnake,
     run_phase_space,
-    SnakeReader
+    SnakeReader,
 )
 from collections import OrderedDict
+
 
 def run_phase_space_for_nonlifting_snake():
     """
@@ -41,6 +42,7 @@ def run_phase_space_for_nonlifting_snake():
     )
 
     ps = run_phase_space(snake_type=KinematicSnake, **kwargs)
+
 
 def run_phase_space_for_lifting_snake():
     """
@@ -76,6 +78,7 @@ def load_snake():
     Look at `run_and_visualize` for a more complete example
     """
     snake, sol_history, time_period = SnakeReader.load_snake_from_disk(1)
+
 
 if __name__ == "__main__":
     run_phase_space_for_nonlifting_snake()
